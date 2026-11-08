@@ -117,8 +117,16 @@ bash scripts/refit_with.sh <sample> clear                             # back to 
 
 The constrained fit goes to `work/joint_modes/cbs_union_user/` (the free fit is kept), and the cohort table reports it,
 with `dLL_constraint` = how much worse the data fit under the given values (about -10 or better: consistent; hundreds
-below zero: the data disagree). Tumor detection always uses the free fit. A batch of constraints can also be given as a
-file (`resources/fit_overrides.example.tsv`) through `HAPLOID_OVERRIDES` with `refit_downstream.sh`.
+below zero: the data disagree). Tumor detection always uses the free fit. For a batch of constraints, use the table
+format in `resources/fit_overrides.example.tsv` and keep `HAPLOID_OVERRIDES` set when refitting and rebuilding the report:
+
+```bash
+export HAPLOID_OVERRIDES=/path/to/fit_overrides.tsv
+STEPS=joint MODES=cbs_union OUT_SUFFIX=_user bash scripts/refit_downstream.sh sample1 sample2
+python3 scripts/cohort_table.py
+```
+
+Without `HAPLOID_OVERRIDES`, the report selects user refits using `work/user_constraints.tsv`.
 Cached user and ichorCNA-constrained fits are reported only while the sample remains in their current override table.
 Rerunning `resolve_discordant.sh` with a sample excluded restores the free fit in the cohort table, unless user values apply.
 

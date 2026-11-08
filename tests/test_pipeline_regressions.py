@@ -47,9 +47,11 @@ class PipelineRegressions(unittest.TestCase):
 
     def run_script(self, name, *args, env=None):
         command = ["bash"] if name.endswith(".sh") else [sys.executable]
+        script_env = {**os.environ, "PY": sys.executable}
+        script_env.pop("HAPLOID_OVERRIDES", None)  # Tests select their own constraint tables.
         return subprocess.run(
             command + [str(self.root / "scripts" / name), *args],
-            env={**os.environ, "PY": sys.executable, **(env or {})},
+            env={**script_env, **(env or {})},
             capture_output=True, text=True, timeout=20,
         )
 
@@ -71,8 +73,8 @@ class PipelineRegressions(unittest.TestCase):
                      columns=["sample", "purity", "ploidy", "diploid"]).to_csv(
             self.root / "work" / name, sep="\t", index=False)
 
-    def cohort(self):
-        result = self.run_script("cohort_table.py")
+    def cohort(self, env=None):
+        result = self.run_script("cohort_table.py", env=env)
         self.assertEqual(result.returncode, 0, result.stderr)
         return pd.read_csv(self.root / "work/cohort_summary.tsv", sep="\t", dtype={"sample": str}).set_index("sample")
 
@@ -126,6 +128,40 @@ class PipelineRegressions(unittest.TestCase):
         self.write_overrides("fit_overrides_ichor_ploidy.tsv", [])
         self.assertEqual(self.cohort().loc["S"].TF, 0.4)
 
+    def test_custom_override_file_selects_refit_and_intervals(self):
+        self.write_fit("arms", sample="001")
+        self.write_fit("cbs_union", sample="001")
+        self.write_fit("cbs_union_user", sample="001", joint_TF=0.7, ctDNA_fraction=0.7,
+                       TF_lo=0.68, TF_hi=0.72, ctDNA_lo=0.68, ctDNA_hi=0.72)
+        self.write_overrides("batch_constraints.tsv", ["001"])
+        env = {"HAPLOID_OVERRIDES": str(self.root / "work/batch_constraints.tsv")}
+        row = self.cohort(env=env).loc["001"]
+        self.assertEqual((row.TF, row.TF_lo, row.TF_hi), (0.7, 0.68, 0.72))
+        self.assertEqual((row.ctDNA_fraction, row.ctDNA_lo, row.ctDNA_hi), (0.7, 0.68, 0.72))
+        self.assertIn("your values", row.tf_basis)
+
+    def test_custom_override_membership_controls_cached_user_refits(self):
+        for sample in ["001", "002"]:
+            self.write_fit("arms", sample=sample)
+            self.write_fit("cbs_union", sample=sample)
+            self.write_fit("cbs_union_user", sample=sample, joint_TF=0.7)
+            self.write_fit("cbs_union_ichorploidy", sample=sample, joint_TF=0.6)
+        self.write_overrides("user_constraints.tsv", ["001", "002"])
+        self.write_overrides("fit_overrides_ichor_ploidy.tsv", ["001", "002"])
+        self.write_overrides("batch_constraints.tsv", ["001"])
+        env = {"HAPLOID_OVERRIDES": str(self.root / "work/batch_constraints.tsv")}
+        table = self.cohort(env=env)
+        self.assertEqual(table.loc["001"].TF, 0.7)
+        self.assertEqual(table.loc["002"].TF, 0.6)
+        self.write_overrides("batch_constraints.tsv", [])
+        table = self.cohort(env=env)
+        self.assertTrue((table.TF == 0.6).all())
+        self.assertTrue(table.tf_basis.str.contains("ichorCNA").all())
+        self.write_overrides("fit_overrides_ichor_ploidy.tsv", [])
+        table = self.cohort(env=env)
+        self.assertTrue((table.TF == 0.4).all())
+        self.assertTrue((table.tf_basis == "arms").all())
+
     def test_exclusion_updates_cohort_without_refitting(self):
         self.write_fit("arms")
         self.write_fit("cbs_union", joint_ploidy=4.)
@@ -139,6 +175,20 @@ class PipelineRegressions(unittest.TestCase):
         self.assertEqual(row.TF, 0.4)
         self.assertEqual(row.tf_basis, "arms")
         self.assertTrue((self.root / "work/joint_modes/cbs_union_ichorploidy/S.joint_summary.tsv").exists())
+
+    def test_manual_refits_use_their_own_override_table(self):
+        self.write_fit("arms")
+        self.write_fit("cbs_union", calls_pass=0)
+        self.write_fit("cbs_union_user", joint_TF=0.7, calls_pass=0)
+        self.write_overrides("batch_constraints.tsv", [])
+        # Keep the prepared fit so this test exercises table selection without sequencing tools.
+        (self.root / "scripts/refit_downstream.sh").write_text("#!/usr/bin/env bash\nexit 0\n")
+        env = {"HAPLOID_OVERRIDES": str(self.root / "work/batch_constraints.tsv")}
+        result = self.run_script("refit_with.sh", "S", "ploidy=2", env=env)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        row = pd.read_csv(self.root / "work/cohort_summary.tsv", sep="\t").iloc[0]
+        self.assertEqual(row.TF, 0.7)
+        self.assertIn("your values", row.tf_basis)
 
     def test_refit_failures_stop_sample_and_propagate_across_batches(self):
         runner = self.root / "runner"

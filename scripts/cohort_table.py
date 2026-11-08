@@ -21,11 +21,13 @@ Refitted samples: TF, ploidy, ctDNA and events come from the refit, tf_basis say
 TF_lo / TF_hi, ctDNA_lo / ctDNA_hi: segment-bootstrap 95% interval from the same fit as the reported estimate: arms,
 or the constrained refit when active, detected samples only. With few informative arms, intervals can be wide because
 a resample may miss the events that anchor TF. Cached refits are used only for samples in their current override table.
+User refits use HAPLOID_OVERRIDES when set, otherwise work/user_constraints.tsv.
 TF_uncertain = interval wider than --max-tf-width (default 0.2): the estimate depends on which events drive it.
 Usage: cohort_table.py [--min-tf 0.10] [--min-baf-bins 2000] [--max-tf-width 0.2]
 Output: work/cohort_summary.tsv, work/cohort_events.tsv (one row per called event, with the mode it came from)
 """
 import argparse
+import os
 from pathlib import Path
 import numpy as np, pandas as pd
 from allelic_lib import call_events
@@ -63,8 +65,9 @@ def fit_flag(seg, det):
 
 
 REFITS = [("cbs_union_user", "your values"), ("cbs_union_ichorploidy", "ploidy held at ichorCNA's")]
+USER_OVERRIDES = Path(os.environ.get("HAPLOID_OVERRIDES", ROOT / "work/user_constraints.tsv"))
 active_refits = {}
-for folder, f in [("cbs_union_user", ROOT / "work/user_constraints.tsv"),
+for folder, f in [("cbs_union_user", USER_OVERRIDES),
                   ("cbs_union_ichorploidy", ROOT / "work/fit_overrides_ichor_ploidy.tsv")]:
     active_refits[folder] = set(pd.read_csv(f, sep="\t", dtype=str)["sample"]) if f.exists() else set()
 rows, events = [], []

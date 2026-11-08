@@ -44,4 +44,4 @@ else
       "$ROOT/work/joint_modes/$d/$S.joint_summary.tsv"
   done
 fi
-cd "$SC" && "$PY" cohort_table.py > /dev/null && echo "  cohort table updated (tf_basis shows the source)"
+cd "$SC" && HAPLOID_OVERRIDES=$UC "$PY" cohort_table.py > /dev/null && echo "  cohort table updated (tf_basis shows the source)"
