@@ -1,7 +1,9 @@
 """One row per sample from the joint-fit modes, following the dilution results:
-  detection, TF, ploidy        : arms mode (cleanest detection, TF within ~0.01 down to TF 0.10)
-  events (LOH / CN-LOH / gains): cbs_union when detected with TF >= CBS_MIN_TF (most sensitive, few false calls there),
-                                 otherwise arms (arm-level only; very low TF gives too little signal for breakpoints)
+  detection                    : arms mode (cleanest detection)
+  TF, ploidy, events           : cbs_union when detected with arms TF >= --min-tf (most sensitive, few false calls there;
+                                 its finer segments separate a one-copy gain at high TF from a two-copy gain at low TF,
+                                 which arm averages blur), otherwise arms (TF within ~0.01 down to TF 0.10; very low TF
+                                 gives too little signal for breakpoints). tf_basis names the fit.
   ichorCNA TF / ploidy         : alongside, for comparison
 ctDNA_fraction is the tumor share of cfDNA; unlike the cell fraction (TF) it does not depend on the ploidy choice, so use it
 when `ambiguous` is True (a solution at a different ploidy within 10 log-likelihood units).
@@ -18,9 +20,10 @@ explained a set of clonal events as "subclonal" at a higher TF (see work/plots/c
 Refitted samples: TF, ploidy, ctDNA and events come from the refit, tf_basis says which and what it cost (dLL_constraint):
   work/joint_modes/cbs_union_user/          values you gave (refit_with.sh) - first priority
   work/joint_modes/cbs_union_ichorploidy/   ploidy held at ichorCNA's (resolve_discordant.sh)
-TF_lo / TF_hi, ctDNA_lo / ctDNA_hi: segment-bootstrap 95% interval from the same fit as the reported estimate: arms,
-or the constrained refit when active, detected samples only. With few informative arms, intervals can be wide because
-a resample may miss the events that anchor TF. Cached refits are used only for samples in their current override table.
+TF_lo / TF_hi, ctDNA_lo / ctDNA_hi: segment-bootstrap 95% interval from the same fit as the reported estimate (tf_basis),
+detected samples only. Arm intervals can be wide: with few informative arms a resample may miss the events that anchor TF.
+TF is capped at 1.00 (the grid edge): read 1.00 as >= ~0.95. Constitutional (germline) copy-number changes at full level
+are fitted as clonal tumor events and can push a low-TF sample to ~1.0 - not separable without a matched normal. Cached refits are used only for samples in their current override table.
 User refits use HAPLOID_OVERRIDES when set, otherwise work/user_constraints.tsv.
 TF_uncertain = interval wider than --max-tf-width (default 0.2): the estimate depends on which events drive it.
 Usage: cohort_table.py [--min-tf 0.10] [--min-baf-bins 2000] [--max-tf-width 0.2]
@@ -83,28 +86,28 @@ for s, a in arms.iterrows():
     ev = call_events(seg) if det else pd.DataFrame(columns=["chrom", "start", "end", "type", "mb", "focal"])
     src = pd.read_csv(J / f"{folder}/{s}.joint_summary.tsv", sep="\t").iloc[0] if folder != use \
         else cbs.loc[s] if use == "cbs_union" else a
+    fit = src if use == "cbs_union" else a                # the fit TF, ploidy and interval are reported from
     ok = seg[seg.call_pass.astype(str) == "True"] if det else seg.iloc[0:0]
     sub = ok.sub_to.fillna("").astype(str)                # LOH also when both subclonal states lack the B allele
     loh = ok[(ok.nB == 0) & sub.map(lambda u: u == "" or u.split("@")[0].split(":")[1] == "0").astype(bool)]
     flag = fit_flag(pd.read_csv(J / f"arms/{s}.joint_segments.tsv", sep="\t"), det)
     rows.append(dict(sample=s, tumor_detected=det, fit_flag=flag, tumor_llr=a.tumor_llr,
-                     TF=a.joint_TF if det else "not_detected", ctDNA_fraction=a.get("ctDNA_fraction", "") if det else "not_detected",
-                     ploidy=a.joint_ploidy if det else "", ambiguous=a.ambiguous if det else "",
-                     dLL_other_ploidy=a.dLL_other_ploidy if det else "",
+                     TF=fit.joint_TF if det else "not_detected",
+                     ctDNA_fraction=fit.get("ctDNA_fraction", "") if det else "not_detected",
+                     ploidy=fit.joint_ploidy if det else "", ambiguous=fit.ambiguous if det else "",
+                     dLL_other_ploidy=fit.dLL_other_ploidy if det else "",
                      ichor_TF=a.ichor_TF, ichor_ploidy=a.ichor_ploidy, events_from=use if det else "",
                      loh_mb=round(loh.mb.sum(), 1), cnloh_mb=src.cnloh_mb if det else 0.0,
                      n_loh=int((ev.type == "LOH").sum()), n_gain=int((ev.type == "gain").sum()),
                      n_loss=int((ev.type == "loss").sum()), n_focal=int(ev.focal.astype(bool).sum()) if len(ev) else 0,
                      constraints=a.get("constraints", ""), depth_source=a.depth_source, **qc(s)))
-    ci = src if held else a
-    lo, hi = ci.get("TF_lo", np.nan), ci.get("TF_hi", np.nan)
+    lo, hi = fit.get("TF_lo", np.nan), fit.get("TF_hi", np.nan)
     rows[-1].update(TF_lo=lo if det else "", TF_hi=hi if det else "",
-                    ctDNA_lo=ci.get("ctDNA_lo", np.nan) if det else "", ctDNA_hi=ci.get("ctDNA_hi", np.nan) if det else "",
+                    ctDNA_lo=fit.get("ctDNA_lo", np.nan) if det else "", ctDNA_hi=fit.get("ctDNA_hi", np.nan) if det else "",
                     TF_uncertain=bool(hi - lo > A.max_tf_width) if det and pd.notna(lo) and pd.notna(hi) else "",
-                    tf_basis="arms" if det else "")
+                    tf_basis=use if det else "")
     if held:
-        rows[-1].update(TF=src.joint_TF, ploidy=src.joint_ploidy, ctDNA_fraction=src.ctDNA_fraction,
-                        tf_basis=f"cbs_union, {held[1]}: {src.constraints} (dLL_constraint {src.dLL_constraint})")
+        rows[-1].update(tf_basis=f"cbs_union, {held[1]}: {src.constraints} (dLL_constraint {src.dLL_constraint})")
     for e in ev.itertuples():
         events.append(dict(sample=s, mode=folder, chrom=e.chrom, start=int(e.start), end=int(e.end), type=e.type,
                            mb=round(e.mb, 1), focal=e.focal))

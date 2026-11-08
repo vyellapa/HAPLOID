@@ -29,8 +29,9 @@ genome-doubled state).
 7. **Joint fit** (`joint_fit.py`): grid search over tumor fraction and ploidy; per segment, the allele-specific state
    (clonal or subclonal) that best explains depth, the phased allele counts (beta-binomial HMM over phase switches) and
    the unphased all-site allele balance, with a PURPLE-style event penalty. Run in three segmentations:
-   - `arms`: chromosome arms - tumor detection and tumor fraction
-   - `cbs_union`: CBS breakpoints on depth + BAF - events (LOH, CN-LOH, gains, losses)
+   - `arms`: chromosome arms - tumor detection, and tumor fraction below 0.10
+   - `cbs_union`: CBS breakpoints on depth + BAF - events (LOH, CN-LOH, gains, losses), and tumor fraction / ploidy
+     at 0.10 and above (finer segments separate a one-copy gain at high TF from a two-copy gain at low TF)
    - `ascat`: ASCAT segments - reference
 8. **Cohort table** (`cohort_table.py`): detection, tumor fraction, ploidy, ctDNA fraction, events, QC flags.
 
@@ -51,8 +52,9 @@ differ in TF but agree on ctDNA fraction, so report it when `ambiguous` is true.
 **Intervals.** `TF_lo` / `TF_hi` come from a segment bootstrap of the joint fit (200 resamples): they show how much the
 estimate depends on which events drive it. `TF_uncertain` marks intervals wider than 0.2 - typically losses or gains at
 two levels, where a diploid-with-subclone and a genome-doubled reading fit about equally well.
-The estimate and interval use the same fit (`tf_basis`): arms by default, or an active constrained refit. Arm intervals
-can also be wide when few arms carry informative events and a bootstrap resample misses them.
+The estimate and interval use the same fit (`tf_basis`): cbs_union for detected samples with TF >= 0.10, arms below
+that, or an active constrained refit. TF is capped at 1.00 (the edge of the grid), so read 1.00 as >= ~0.95.
+Constitutional copy-number changes at full level are fitted as clonal tumor events and can push a low-TF sample to ~1.0.
 
 **QC flags.** `allele_qc = low`: too few haplotype reads (typically very high duplicate rates in low-input libraries) -
 the fit is close to depth-only and "no LOH" is not a negative result. `fit_flag = uniform_imbalance`: the whole genome

@@ -78,13 +78,20 @@ class PipelineRegressions(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         return pd.read_csv(self.root / "work/cohort_summary.tsv", sep="\t", dtype={"sample": str}).set_index("sample")
 
-    def test_intervals_follow_reported_estimates(self):
+    def test_detected_samples_report_cbs_union_with_its_interval(self):
         self.write_fit("arms")
-        self.write_fit("cbs_union", joint_TF=0.8, ctDNA_fraction=0.8,
+        self.write_fit("cbs_union", joint_TF=0.8, ctDNA_fraction=0.8, joint_ploidy=2.1,
                        TF_lo=0.79, TF_hi=0.81, ctDNA_lo=0.79, ctDNA_hi=0.81)
         row = self.cohort().loc["S"]
-        self.assertEqual((row.TF, row.TF_lo, row.TF_hi), (0.4, 0.38, 0.42))
-        self.assertEqual((row.ctDNA_fraction, row.ctDNA_lo, row.ctDNA_hi), (0.4, 0.38, 0.42))
+        self.assertEqual((row.TF, row.TF_lo, row.TF_hi, row.ploidy), (0.8, 0.79, 0.81, 2.1))
+        self.assertEqual((row.ctDNA_fraction, row.ctDNA_lo, row.ctDNA_hi), (0.8, 0.79, 0.81))
+        self.assertEqual(row.tf_basis, "cbs_union")
+
+    def test_low_tf_samples_report_arms_with_its_interval(self):
+        self.write_fit("arms", joint_TF=0.06, ctDNA_fraction=0.06, TF_lo=0.05, TF_hi=0.09, ctDNA_lo=0.05, ctDNA_hi=0.09)
+        self.write_fit("cbs_union", joint_TF=0.9, TF_lo=0.85, TF_hi=0.95)
+        row = self.cohort().loc["S"]
+        self.assertEqual((row.TF, row.TF_lo, row.TF_hi), (0.06, 0.05, 0.09))
         self.assertEqual(row.tf_basis, "arms")
 
     def test_cohort_reads_samples_missing_from_merged_table(self):
@@ -95,8 +102,8 @@ class PipelineRegressions(unittest.TestCase):
         self.assertEqual(set(self.cohort().index), {"001", "002"})
 
     def test_unavailable_intervals_and_negative_samples_stay_empty(self):
-        self.write_fit("arms", TF_lo=float("nan"), TF_hi=float("nan"))
-        self.write_fit("cbs_union", TF_lo=0.79, TF_hi=0.81)
+        self.write_fit("arms", TF_lo=0.38, TF_hi=0.42)              # not the reported fit
+        self.write_fit("cbs_union", TF_lo=float("nan"), TF_hi=float("nan"))
         self.write_fit("arms", sample="negative", tumor_detected=False)
         table = self.cohort()
         self.assertTrue(pd.isna(table.loc["S"].TF_lo))
@@ -160,7 +167,7 @@ class PipelineRegressions(unittest.TestCase):
         self.write_overrides("fit_overrides_ichor_ploidy.tsv", [])
         table = self.cohort(env=env)
         self.assertTrue((table.TF == 0.4).all())
-        self.assertTrue((table.tf_basis == "arms").all())
+        self.assertTrue((table.tf_basis == "cbs_union").all())
 
     def test_exclusion_updates_cohort_without_refitting(self):
         self.write_fit("arms")
@@ -173,7 +180,7 @@ class PipelineRegressions(unittest.TestCase):
         self.assertIn("nothing to refit", result.stdout)
         row = pd.read_csv(self.root / "work/cohort_summary.tsv", sep="\t").iloc[0]
         self.assertEqual(row.TF, 0.4)
-        self.assertEqual(row.tf_basis, "arms")
+        self.assertEqual(row.tf_basis, "cbs_union")
         self.assertTrue((self.root / "work/joint_modes/cbs_union_ichorploidy/S.joint_summary.tsv").exists())
 
     def test_manual_refits_use_their_own_override_table(self):
