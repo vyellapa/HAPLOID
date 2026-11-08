@@ -22,9 +22,9 @@ from pathlib import Path
 import pandas as pd
 ROOT = Path(os.environ["ROOT"]); leave = set(sys.argv[1:])
 dmin, win, bam = float(os.environ["MIN_PLOIDY_DIFF"]), float(os.environ["PLOIDY_WIN"]), os.environ["BAM_DIR"]
-S = pd.concat([pd.read_csv(f, sep="\t") for f in glob.glob(str(ROOT / "work/joint_modes/cbs_union/*.joint_summary.tsv"))]) \
+S = pd.concat([pd.read_csv(f, sep="\t", dtype={"sample": str}) for f in glob.glob(str(ROOT / "work/joint_modes/cbs_union/*.joint_summary.tsv"))]) \
     .drop_duplicates("sample", keep="last").set_index("sample")
-Q = pd.read_csv(ROOT / "work/cohort_summary.tsv", sep="\t").set_index("sample") if (ROOT / "work/cohort_summary.tsv").exists() else None
+Q = pd.read_csv(ROOT / "work/cohort_summary.tsv", sep="\t", dtype={"sample": str}).set_index("sample") if (ROOT / "work/cohort_summary.tsv").exists() else None
 def ichor_ploidy(s):
     for f in ([Path(bam) / f"{s}_500k/{s}_Y.params.txt"] if bam else []) + [ROOT / f"ichor/{s}_Y.params.txt", ROOT / f"{s}_500k/{s}_Y.params.txt"]:
         if f.exists():
@@ -50,7 +50,10 @@ P.drop(columns=["ichor_p", "cbs_p"]).to_csv(os.environ["OV"], sep="\t", index=Fa
 print(f"{len(P)} samples -> {os.environ['OV']}")
 PYEOF
 samples=$(tail -n +2 "$OV" | cut -f1)
-[ -n "$samples" ] || { echo "nothing to refit"; exit 0; }
-HAPLOID_OVERRIDES=$OV STEPS=joint MODES=cbs_union OUT_SUFFIX=_ichorploidy JOBS=${JOBS:-8} BAM_DIR=${BAM_DIR:-} PY=$PY \
-  bash "$SC/refit_downstream.sh" $samples
+if [ -n "$samples" ]; then
+  HAPLOID_OVERRIDES=$OV STEPS=joint MODES=cbs_union OUT_SUFFIX=_ichorploidy JOBS=${JOBS:-8} BAM_DIR=${BAM_DIR:-} PY=$PY \
+    bash "$SC/refit_downstream.sh" $samples
+else
+  echo "nothing to refit"
+fi
 cd "$SC" && "$PY" cohort_table.py

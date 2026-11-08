@@ -18,9 +18,9 @@ explained a set of clonal events as "subclonal" at a higher TF (see work/plots/c
 Refitted samples: TF, ploidy, ctDNA and events come from the refit, tf_basis says which and what it cost (dLL_constraint):
   work/joint_modes/cbs_union_user/          values you gave (refit_with.sh) - first priority
   work/joint_modes/cbs_union_ichorploidy/   ploidy held at ichorCNA's (resolve_discordant.sh)
-TF_lo / TF_hi, ctDNA_lo / ctDNA_hi: segment-bootstrap 95% interval from the cbs_union fit (or its refit), detected
-samples only. Not from the arms fit: with ~40 arm segments of which few carry events, a resample that misses them leaves
-TF almost free, so arm intervals are far too wide (a clean TF 0.5 mixture gave 0.43-1.00; cbs_union 0.48-0.52);
+TF_lo / TF_hi, ctDNA_lo / ctDNA_hi: segment-bootstrap 95% interval from the same fit as the reported estimate: arms,
+or the constrained refit when active, detected samples only. With few informative arms, intervals can be wide because
+a resample may miss the events that anchor TF. Cached refits are used only for samples in their current override table.
 TF_uncertain = interval wider than --max-tf-width (default 0.2): the estimate depends on which events drive it.
 Usage: cohort_table.py [--min-tf 0.10] [--min-baf-bins 2000] [--max-tf-width 0.2]
 Output: work/cohort_summary.tsv, work/cohort_events.tsv (one row per called event, with the mode it came from)
@@ -29,15 +29,15 @@ import argparse
 from pathlib import Path
 import numpy as np, pandas as pd
 from allelic_lib import call_events
+from summary_tables import read_summaries
 
 ROOT = Path(__file__).resolve().parents[1]
 ap = argparse.ArgumentParser(); ap.add_argument("--min-tf", type=float, default=0.10)
 ap.add_argument("--min-baf-bins", type=int, default=2000)
 ap.add_argument("--max-tf-width", type=float, default=0.2); A = ap.parse_args()
 J = ROOT / "work/joint_modes"
-arms = pd.read_csv(J / "arms/joint_summary.tsv", sep="\t").set_index("sample")
-cbs = pd.read_csv(J / "cbs_union/joint_summary.tsv", sep="\t").set_index("sample") if (J / "cbs_union/joint_summary.tsv").exists() \
-    else pd.DataFrame()
+arms = read_summaries(J / "arms").set_index("sample")
+cbs = read_summaries(J / "cbs_union").set_index("sample")
 
 
 def qc(s):
@@ -63,11 +63,16 @@ def fit_flag(seg, det):
 
 
 REFITS = [("cbs_union_user", "your values"), ("cbs_union_ichorploidy", "ploidy held at ichorCNA's")]
+active_refits = {}
+for folder, f in [("cbs_union_user", ROOT / "work/user_constraints.tsv"),
+                  ("cbs_union_ichorploidy", ROOT / "work/fit_overrides_ichor_ploidy.tsv")]:
+    active_refits[folder] = set(pd.read_csv(f, sep="\t", dtype=str)["sample"]) if f.exists() else set()
 rows, events = [], []
 for s, a in arms.iterrows():
     det = str(a.tumor_detected) == "True"
     use = "cbs_union" if det and a.joint_TF >= A.min_tf and s in cbs.index else "arms"
-    held = next(((d, why) for d, why in REFITS if det and (J / d / f"{s}.joint_summary.tsv").exists()), None)
+    held = next(((d, why) for d, why in REFITS
+                 if det and s in active_refits[d] and (J / d / f"{s}.joint_summary.tsv").exists()), None)
     if held:                                              # refitted: events from that fit too
         use = "cbs_union"
     folder = held[0] if held else use
@@ -88,11 +93,12 @@ for s, a in arms.iterrows():
                      n_loh=int((ev.type == "LOH").sum()), n_gain=int((ev.type == "gain").sum()),
                      n_loss=int((ev.type == "loss").sum()), n_focal=int(ev.focal.astype(bool).sum()) if len(ev) else 0,
                      constraints=a.get("constraints", ""), depth_source=a.depth_source, **qc(s)))
-    ci = src if held else (cbs.loc[s] if s in cbs.index else a)   # interval from the cbs_union fit (see header)
+    ci = src if held else a
     lo, hi = ci.get("TF_lo", np.nan), ci.get("TF_hi", np.nan)
     rows[-1].update(TF_lo=lo if det else "", TF_hi=hi if det else "",
                     ctDNA_lo=ci.get("ctDNA_lo", np.nan) if det else "", ctDNA_hi=ci.get("ctDNA_hi", np.nan) if det else "",
-                    TF_uncertain=bool(hi - lo > A.max_tf_width) if det and pd.notna(lo) else "")
+                    TF_uncertain=bool(hi - lo > A.max_tf_width) if det and pd.notna(lo) and pd.notna(hi) else "",
+                    tf_basis="arms" if det else "")
     if held:
         rows[-1].update(TF=src.joint_TF, ploidy=src.joint_ploidy, ctDNA_fraction=src.ctDNA_fraction,
                         tf_basis=f"cbs_union, {held[1]}: {src.constraints} (dLL_constraint {src.dLL_constraint})")
@@ -101,7 +107,7 @@ for s, a in arms.iterrows():
                            mb=round(e.mb, 1), focal=e.focal))
 R = pd.DataFrame(rows)
 if (ROOT / "work/clonal_tf.tsv").exists():
-    C = pd.read_csv(ROOT / "work/clonal_tf.tsv", sep="\t")[["sample", "clonal_TF", "clonal_ploidy", "ctDNA_clonal",
+    C = pd.read_csv(ROOT / "work/clonal_tf.tsv", sep="\t", dtype={"sample": str})[["sample", "clonal_TF", "clonal_ploidy", "ctDNA_clonal",
                                                            "clonal_frac_of_aberrant", "runner_up_TF", "d_cost_runner_up"]]
     R = R.merge(C, on="sample", how="left")
     for c in C.columns[1:]:                               # only meaningful when tumor is detected

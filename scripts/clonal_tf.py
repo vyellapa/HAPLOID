@@ -86,7 +86,7 @@ def implied(theta, a, b):
     return float(T[np.argmin(np.abs(tp - theta))])
 
 
-S = pd.concat([pd.read_csv(f, sep="\t") for f in sorted(J.glob("*.joint_summary.tsv"))]).drop_duplicates("sample", keep="last") \
+S = pd.concat([pd.read_csv(f, sep="\t", dtype={"sample": str}) for f in sorted(J.glob("*.joint_summary.tsv"))]).drop_duplicates("sample", keep="last") \
     .set_index("sample")                                         # per-sample summaries (the merged file can lag behind)
 samples = A.samples or S.index.tolist()
 res, segrows = [], []
@@ -152,9 +152,9 @@ R = pd.DataFrame(res); G = pd.DataFrame(segrows)
 fo, fs = ROOT / f"work/clonal_tf{'_' + A.only if A.only else ''}.tsv", ROOT / f"work/clonal_tf{'_' + A.only if A.only else ''}_segments.tsv"
 if A.samples:                               # a subset updates its own rows and keeps the rest of the table
     if fo.exists():
-        R = pd.concat([pd.read_csv(fo, sep="\t").query("sample not in @samples"), R])
+        R = pd.concat([pd.read_csv(fo, sep="\t", dtype={"sample": str}).query("sample not in @samples"), R])
     if fs.exists():
-        G = pd.concat([pd.read_csv(fs, sep="\t").query("sample not in @samples"), G])
+        G = pd.concat([pd.read_csv(fs, sep="\t", dtype={"sample": str}).query("sample not in @samples"), G])
 R.to_csv(fo, sep="\t", index=False); G.to_csv(fs, sep="\t", index=False)
 pd.set_option("display.width", 220); pd.set_option("display.max_rows", 300)
 print(R.round(2).to_string(index=False))

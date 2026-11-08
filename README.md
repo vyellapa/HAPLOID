@@ -51,6 +51,8 @@ differ in TF but agree on ctDNA fraction, so report it when `ambiguous` is true.
 **Intervals.** `TF_lo` / `TF_hi` come from a segment bootstrap of the joint fit (200 resamples): they show how much the
 estimate depends on which events drive it. `TF_uncertain` marks intervals wider than 0.2 - typically losses or gains at
 two levels, where a diploid-with-subclone and a genome-doubled reading fit about equally well.
+The estimate and interval use the same fit (`tf_basis`): arms by default, or an active constrained refit. Arm intervals
+can also be wide when few arms carry informative events and a bootstrap resample misses them.
 
 **QC flags.** `allele_qc = low`: too few haplotype reads (typically very high duplicate rates in low-input libraries) -
 the fit is close to depth-only and "no LOH" is not a negative result. `fit_flag = uniform_imbalance`: the whole genome
@@ -117,6 +119,8 @@ The constrained fit goes to `work/joint_modes/cbs_union_user/` (the free fit is 
 with `dLL_constraint` = how much worse the data fit under the given values (about -10 or better: consistent; hundreds
 below zero: the data disagree). Tumor detection always uses the free fit. A batch of constraints can also be given as a
 file (`resources/fit_overrides.example.tsv`) through `HAPLOID_OVERRIDES` with `refit_downstream.sh`.
+Cached user and ichorCNA-constrained fits are reported only while the sample remains in their current override table.
+Rerunning `resolve_discordant.sh` with a sample excluded restores the free fit in the cohort table, unless user values apply.
 
 ## Settings
 

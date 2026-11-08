@@ -12,6 +12,7 @@
 set -euo pipefail
 ROOT=$(cd "$(dirname "$0")/.." && pwd); SC=$ROOT/scripts
 export PY=${PY:-python3} MODES=${MODES:-arms cbs_union ascat} STEPS=${STEPS:-bins seg joint} ROOT SC
+mkdir -p "$ROOT/logs/samples"
 one() {
   local s=$1 d=""
   for c in ${BAM_DIR:+"$BAM_DIR/${s}_500k"} "$ROOT/work/dilution/${s}_500k" "$ROOT/${s}_500k" "$ROOT/controls/${s}_500k"; do [ -d "$c" ] && { d=$c; break; }; done
@@ -28,9 +29,19 @@ one() {
   done
   echo "[$(date '+%T')] $s refit done"
 }
-i=0
+pids=(); failed=0
+wait_batch() {
+  local pid
+  for pid in "${pids[@]}"; do wait "$pid" || failed=1; done
+  pids=()
+}
 for s in "$@"; do                          # JOBS samples at a time; a failure is logged, the others continue
-  ( one "$s" || echo "[$(date '+%T')] $s refit FAILED (see logs/samples/$s.refit.log)" ) &
-  i=$((i + 1)); [ $((i % ${JOBS:-4})) -eq 0 ] && wait
+  (
+    trap 'status=$?; if [ "$status" -ne 0 ]; then echo "[$(date '+%T')] $s refit FAILED (see logs/samples/$s.refit.log)" >&2; fi' EXIT
+    one "$s"
+  ) &
+  pids+=($!)
+  if [ "${#pids[@]}" -ge "${JOBS:-4}" ]; then wait_batch; fi
 done
-wait
+wait_batch
+exit "$failed"

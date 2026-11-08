@@ -45,6 +45,7 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 from allelic_lib import CEN_PAD, INK, INK2, RES, SURF, ichor_ploidy, in_mask, params, segments, site_table, style
 from phased_lib import THETA, fit_nu, forward_ll, load_hapcounts
+from summary_tables import merge_summaries
 
 ROOT = Path(__file__).resolve().parents[1]
 OUT = Path(os.environ.get("HAPLOID_JOINT_OUT", ROOT / "work/joint")); OUT.mkdir(parents=True, exist_ok=True)
@@ -506,7 +507,5 @@ for smp in sys.argv[1:] or sys.exit("usage: joint_fit.py <samples...>"):
                  fontweight="bold")
     fig.tight_layout(); fig.savefig(OUT / f"{smp}.joint_sunrise.png", dpi=130, facecolor=SURF); plt.close(fig)
 
-# merged table rebuilt from the per-sample files; written via a temp file so concurrent runs never leave it half-written
-allsum = pd.concat([pd.read_csv(f, sep="\t") for f in sorted(OUT.glob("*.joint_summary.tsv"))])
-tmp = OUT / f".joint_summary.{os.getpid()}.tsv"
-allsum.to_csv(tmp, sep="\t", index=False); os.replace(tmp, OUT / "joint_summary.tsv")
+# Lock the entire read/merge/write sequence; replacement alone does not prevent stale snapshots.
+merge_summaries(OUT)
