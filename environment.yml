@@ -1,0 +1,19 @@
+name: haploid
+channels:
+  - conda-forge
+  - bioconda
+dependencies:
+  - python>=3.9
+  - numpy
+  - pandas
+  - matplotlib
+  - pysam
+  - samtools
+  - bcftools
+  - htslib
+  - ucsc-liftover
+  - r-base>=4.2
+  - bioconductor-dnacopy
+  - r-remotes
+# ASCAT is installed from GitHub:  Rscript -e 'remotes::install_github("VanLoo-lab/ascat/ASCAT")'
+# GLIMPSE2: scripts/fetch_glimpse.sh (static binaries) or a docker / apptainer image (scripts/glimpse_env.sh)

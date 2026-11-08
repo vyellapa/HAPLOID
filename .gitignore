@@ -1,0 +1,31 @@
+# data and results: never commit
+work/
+logs/
+ichor/
+*_500k/
+*.bam
+*.bai
+*.cram
+*.crai
+*.fa
+*.fa.fai
+*.fasta
+*.vcf
+*.vcf.gz
+*.bcf
+*.csi
+*.tbi
+*.wig
+*.png
+*.pdf
+
+# reference resources (built locally, see resources/README.md)
+resources/*
+!resources/README.md
+!resources/fit_overrides.example.tsv
+
+# python / editor
+__pycache__/
+*.pyc
+.DS_Store
+.ipynb_checkpoints/

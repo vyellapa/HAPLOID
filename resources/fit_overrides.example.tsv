@@ -1,0 +1,4 @@
+sample	purity	ploidy	diploid
+EXAMPLE1	0.35		
+EXAMPLE2		2	
+EXAMPLE3	0.3-0.5		chr2,chr8p
