@@ -1,0 +1,17 @@
+# Allow only source files; reference data, sample data and credentials stay out.
+**
+!Dockerfile
+!environment.yml
+!README.md
+!LICENSE
+!scripts/
+!scripts/**
+!tests/
+!tests/**
+!container/
+!container/**
+!resources/
+!resources/README.md
+!resources/fit_overrides.example.tsv
+**/__pycache__/
+**/*.pyc

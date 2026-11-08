@@ -71,6 +71,37 @@ in one non-diploid state with flat depth - usually a mixture of two individuals'
 
 `environment.yml` creates a conda environment with all of these except GLIMPSE2 and ichorCNA.
 
+### Container
+
+Use [`vyellapa/haploid:latest`](https://hub.docker.com/r/vyellapa/haploid) from Docker Hub
+(`linux/amd64`). The image includes Python, R/ASCAT, DNAcopy, samtools/bcftools, liftOver
+and GLIMPSE2. Its `cohort` and `sample` commands run shared reference preparation,
+the full sample pipeline and cohort reports.
+
+```bash
+docker pull vyellapa/haploid:latest
+docker run --rm --platform linux/amd64 vyellapa/haploid:latest check
+
+# From the repository root, after preparing resources/ (including hg38.fa + .fai):
+mkdir -p work logs
+docker run --rm --init --platform linux/amd64 \
+  --user "$(id -u):$(id -g)" \
+  -v "$PWD/resources:/opt/haploid/resources" \
+  -v "$PWD/work:/opt/haploid/work" \
+  -v "$PWD/logs:/opt/haploid/logs" \
+  -v /path/to/bams:/data/bams:ro \
+  -e JOBS=1 -e CORES=4 -e PREP_JOBS=1 \
+  vyellapa/haploid:latest cohort
+
+# On a cluster with Apptainer:
+apptainer pull haploid.sif docker://vyellapa/haploid:latest
+```
+
+Reference resources and BAMs are supplied as mounts. `resources/`, `work/` and `logs/`
+must be writable; outputs persist in `work/` and `logs/`. See the
+[container guide](container/README.md) for input layout, single-sample runs, second-pass
+refitting, Apptainer execution, and build/publish commands.
+
 ## Setup
 
 Reference resources go in `resources/` (none are distributed with the code; see [resources/README.md](resources/README.md)
