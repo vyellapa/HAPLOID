@@ -38,7 +38,7 @@ genome-doubled state).
 
 | File | Content |
 |---|---|
-| `cohort_summary.tsv` | one row per sample: `tumor_detected`, `tumor_llr`, `TF`, `ploidy`, `ctDNA_fraction`, `loh_mb`, `cnloh_mb`, event counts, ichorCNA TF/ploidy, QC (`dup_rate`, `unique_reads_M`, `baf_bins`, `allele_qc`, `fit_flag`) |
+| `cohort_summary.tsv` | one row per sample: `tumor_detected`, `tumor_llr`, `TF` with its 95% interval (`TF_lo`, `TF_hi`, `TF_uncertain`), `ploidy`, `ctDNA_fraction` (+ `ctDNA_lo`, `ctDNA_hi`), `loh_mb`, `cnloh_mb`, event counts, ichorCNA TF/ploidy, QC (`dup_rate`, `unique_reads_M`, `baf_bins`, `allele_qc`, `fit_flag`) |
 | `cohort_events.tsv` | one row per called event: chromosome, start, end, type (LOH / CN-LOH / gain / loss), size |
 | `joint_modes/<mode>/<sample>.joint_segments.tsv` | per segment: depth, phased imbalance, fitted allele-specific state, evidence, call/filter |
 | `joint_modes/<mode>/<sample>.joint_summary.tsv` | per sample fit: TF, ploidy, ctDNA fraction, detection score, alternatives |
@@ -47,6 +47,10 @@ genome-doubled state).
 **Tumor fraction vs. ctDNA fraction.** `TF` is the tumor *cell* fraction; `ctDNA_fraction` = TF x ploidy /
 (TF x ploidy + 2(1 - TF)) is the tumor share of the cfDNA. Diploid and genome-doubled readings of the same data often
 differ in TF but agree on ctDNA fraction, so report it when `ambiguous` is true.
+
+**Intervals.** `TF_lo` / `TF_hi` come from a segment bootstrap of the joint fit (200 resamples): they show how much the
+estimate depends on which events drive it. `TF_uncertain` marks intervals wider than 0.2 - typically losses or gains at
+two levels, where a diploid-with-subclone and a genome-doubled reading fit about equally well.
 
 **QC flags.** `allele_qc = low`: too few haplotype reads (typically very high duplicate rates in low-input libraries) -
 the fit is close to depth-only and "no LOH" is not a negative result. `fit_flag = uniform_imbalance`: the whole genome

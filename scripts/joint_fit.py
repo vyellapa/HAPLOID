@@ -29,6 +29,10 @@ User constraints (refit with what you know, e.g. from tissue or a clearly balanc
 resources/fit_overrides.tsv (env HAPLOID_OVERRIDES), columns sample, purity, ploidy, diploid (blank = free):
   purity  "0.35" (= 0.30-0.40) or "0.3-0.5";  ploidy  "2" (= 1.75-2.25) or "3.5-4.5"  -> fit restricted to that window
   diploid "chr2,chr8p,chr11q"  -> segments centred there are held at 1:1, which anchors absolute copy number
+Bootstrap interval (env HAPLOID_BOOT, default 200 resamples; 0 = off): segments (>= MIN_SEG) are resampled with replacement
+and the best (TF, ploidy) is refound on the summed per-segment likelihood surfaces; TF_lo / TF_hi and ctDNA_lo / ctDNA_hi
+are the 2.5 / 97.5 % points. It measures how much the estimate depends on which events drive it (e.g. losses at two
+levels), not just counting noise; the point estimate and all calls are unchanged. Honours constraints.
 Detection (tumor_llr) still uses the free fit; dLL_constraint = constrained - free best log-likelihood (below about -10
 the data disagree with the constraint).
 Usage: joint_fit.py <sample> [<sample> ...]
@@ -71,6 +75,7 @@ TUMOR_LLR_MIN = float(os.environ.get("HAPLOID_TUMOR_LLR_MIN", 20))   # best fit 
                          # (provisional; dilution nulls reached 11.6, so ~15 may do - calibrate on the cohort)
 NU = {k: int(v) for k, v in (x.split("=") for x in os.environ.get("HAPLOID_NU", "").split(",") if x)}  # e.g. "sample1=4"
 OVERRIDES = Path(os.environ.get("HAPLOID_OVERRIDES", ROOT / "resources/fit_overrides.tsv"))
+N_BOOT = int(os.environ.get("HAPLOID_BOOT", 200))
 B_OF_K = 0.5 - THETA                            # minor-allele fraction for each theta-grid index
 
 
@@ -186,8 +191,9 @@ def build_segments(s):
     return S, norm, phi, nu, src
 
 
-def score(S):
-    """Total log-likelihood over the (rho, psi) grid plus the best state per segment."""
+def score(S, per_segment=None):
+    """Total log-likelihood over the (rho, psi) grid plus the best state per segment.
+    per_segment: a list that receives each segment's best log-likelihood surface (for the bootstrap)."""
     R_, P_ = np.meshgrid(RHO, PSI, indexing="ij")
     total = np.zeros_like(R_); best = []
     th0 = S.attrs.get("theta0", 0.0)
@@ -213,6 +219,8 @@ def score(S):
             upd = ll > best_ll
             best_ll[upd] = ll[upd]; best_st[upd] = i
         total += best_ll; best.append(best_st)
+        if per_segment is not None:
+            per_segment.append(best_ll)
     return total, best
 
 
@@ -381,7 +389,8 @@ for smp in sys.argv[1:] or sys.exit("usage: joint_fit.py <samples...>"):
     attrs0 = dict(S_all.attrs)
     S = S_all[~S_all.focal].reset_index(drop=True); S.attrs.update(attrs0)        # purity/ploidy fit: >= MIN_SEG only
     F = S_all[S_all.focal].reset_index(drop=True); F.attrs.update(attrs0)
-    T, best = score(S)
+    seg_ll = []
+    T, best = score(S, per_segment=seg_ll)
     L = S.mb.to_numpy()
     if S.force11.any():                                   # free fit (nothing held at 1:1) for detection and dLL
         Sf = S.assign(force11=False); Sf.attrs.update(attrs0); llfree = float(score(Sf)[0].max())
@@ -402,6 +411,21 @@ for smp in sys.argv[1:] or sys.exit("usage: joint_fit.py <samples...>"):
         dll_i = round(float(T[ii, jj] - llmax), 1)
     except (FileNotFoundError, KeyError, ValueError):
         tf_i = pl_i = dll_i = np.nan
+    tf_lo = tf_hi = ct_lo = ct_hi = np.nan
+    if N_BOOT > 0 and len(S) >= 3:                        # segment bootstrap of the (rho, psi) choice
+        Y = np.stack(seg_ll).reshape(len(S), -1)          # (segments, grid cells)
+        Y = np.where(np.isfinite(Y), Y, -1e12)
+        mask = np.where(allow.reshape(-1), 0.0, -np.inf)
+        eff_all = np.array([a0 + f * (a2 - a0) + b0 + f * (b2 - b0) for (a0, b0, a2, b2, f) in STATES])
+        Bst = np.stack([b.reshape(-1) for b in best])     # best state per segment and grid cell
+        rng = np.random.default_rng(12345)
+        C_ = rng.multinomial(len(S), np.full(len(S), 1 / len(S)), size=N_BOOT)     # resample counts
+        kb = (C_ @ Y + mask).argmax(axis=1)
+        rb = RHO[kb // len(PSI)]
+        effb = eff_all[Bst[:, kb]]                        # (segments, resamples)
+        pb = (C_.T * L[:, None] * effb).sum(axis=0) / (C_.T * L[:, None]).sum(axis=0)
+        cb = rb * pb / (rb * pb + 2 * (1 - rb))
+        tf_lo, tf_hi = np.percentile(rb, [2.5, 97.5]); ct_lo, ct_hi = np.percentile(cb, [2.5, 97.5])
     alts, best_alt = [], np.nan
     for v, i, j in opts[1:]:
         stj = [STATES[b[i, j]] for b in best]
@@ -446,7 +470,9 @@ for smp in sys.argv[1:] or sys.exit("usage: joint_fit.py <samples...>"):
                cnloh_mb=round(float(loh[loh.nA == int(round(ploidy))].mb.sum()), 1),   # copy-neutral vs sample ploidy
                calls=int(S.is_call.sum()), calls_pass=int(S.call_pass.sum()), segments=len(S),
                focal_calls_pass=int((S.call_pass & S.focal).sum()), dropout_segs=int((~S.use_phased).sum()), allsites_phi=round(phi, 2), nu=nu, theta0=S.attrs["theta0"],
-               constraints=cons, dLL_constraint=round(llmax - llfree, 1) if cons else 0.0, seg_source=src, depth_source=S.attrs["depth_source"], alternatives="; ".join(alts))
+               constraints=cons, dLL_constraint=round(llmax - llfree, 1) if cons else 0.0,
+               TF_lo=round(float(tf_lo), 2), TF_hi=round(float(tf_hi), 2),
+               ctDNA_lo=round(float(ct_lo), 3), ctDNA_hi=round(float(ct_hi), 3), seg_source=src, depth_source=S.attrs["depth_source"], alternatives="; ".join(alts))
     tmp1 = OUT / f".{smp}.{os.getpid()}.tsv"                # atomic: concurrent samples read these files
     pd.DataFrame([row]).to_csv(tmp1, sep="\t", index=False); os.replace(tmp1, OUT / f"{smp}.joint_summary.tsv")
     summary.append(row)

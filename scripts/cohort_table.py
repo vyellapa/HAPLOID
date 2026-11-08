@@ -18,17 +18,22 @@ explained a set of clonal events as "subclonal" at a higher TF (see work/plots/c
 Refitted samples: TF, ploidy, ctDNA and events come from the refit, tf_basis says which and what it cost (dLL_constraint):
   work/joint_modes/cbs_union_user/          values you gave (refit_with.sh) - first priority
   work/joint_modes/cbs_union_ichorploidy/   ploidy held at ichorCNA's (resolve_discordant.sh)
-Usage: cohort_table.py [--min-tf 0.10] [--min-baf-bins 2000]
+TF_lo / TF_hi, ctDNA_lo / ctDNA_hi: segment-bootstrap 95% interval from the cbs_union fit (or its refit), detected
+samples only. Not from the arms fit: with ~40 arm segments of which few carry events, a resample that misses them leaves
+TF almost free, so arm intervals are far too wide (a clean TF 0.5 mixture gave 0.43-1.00; cbs_union 0.48-0.52);
+TF_uncertain = interval wider than --max-tf-width (default 0.2): the estimate depends on which events drive it.
+Usage: cohort_table.py [--min-tf 0.10] [--min-baf-bins 2000] [--max-tf-width 0.2]
 Output: work/cohort_summary.tsv, work/cohort_events.tsv (one row per called event, with the mode it came from)
 """
 import argparse
 from pathlib import Path
-import pandas as pd
+import numpy as np, pandas as pd
 from allelic_lib import call_events
 
 ROOT = Path(__file__).resolve().parents[1]
 ap = argparse.ArgumentParser(); ap.add_argument("--min-tf", type=float, default=0.10)
-ap.add_argument("--min-baf-bins", type=int, default=2000); A = ap.parse_args()
+ap.add_argument("--min-baf-bins", type=int, default=2000)
+ap.add_argument("--max-tf-width", type=float, default=0.2); A = ap.parse_args()
 J = ROOT / "work/joint_modes"
 arms = pd.read_csv(J / "arms/joint_summary.tsv", sep="\t").set_index("sample")
 cbs = pd.read_csv(J / "cbs_union/joint_summary.tsv", sep="\t").set_index("sample") if (J / "cbs_union/joint_summary.tsv").exists() \
@@ -83,6 +88,11 @@ for s, a in arms.iterrows():
                      n_loh=int((ev.type == "LOH").sum()), n_gain=int((ev.type == "gain").sum()),
                      n_loss=int((ev.type == "loss").sum()), n_focal=int(ev.focal.astype(bool).sum()) if len(ev) else 0,
                      constraints=a.get("constraints", ""), depth_source=a.depth_source, **qc(s)))
+    ci = src if held else (cbs.loc[s] if s in cbs.index else a)   # interval from the cbs_union fit (see header)
+    lo, hi = ci.get("TF_lo", np.nan), ci.get("TF_hi", np.nan)
+    rows[-1].update(TF_lo=lo if det else "", TF_hi=hi if det else "",
+                    ctDNA_lo=ci.get("ctDNA_lo", np.nan) if det else "", ctDNA_hi=ci.get("ctDNA_hi", np.nan) if det else "",
+                    TF_uncertain=bool(hi - lo > A.max_tf_width) if det and pd.notna(lo) else "")
     if held:
         rows[-1].update(TF=src.joint_TF, ploidy=src.joint_ploidy, ctDNA_fraction=src.ctDNA_fraction,
                         tf_basis=f"cbs_union, {held[1]}: {src.constraints} (dLL_constraint {src.dLL_constraint})")
