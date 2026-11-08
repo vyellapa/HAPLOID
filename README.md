@@ -149,13 +149,17 @@ bash scripts/refit_with.sh <sample> clear                             # back to 
 The constrained fit goes to `work/joint_modes/cbs_union_user/` (the free fit is kept), and the cohort table reports it,
 with `dLL_constraint` = how much worse the data fit under the given values (about -10 or better: consistent; hundreds
 below zero: the data disagree). Tumor detection always uses the free fit. For a batch of constraints, use the table
-format in `resources/fit_overrides.example.tsv` and keep `HAPLOID_OVERRIDES` set when refitting and rebuilding the report:
+format in `resources/fit_overrides.example.tsv` and give the same `HAPLOID_OVERRIDES` to the refit and to the report:
 
 ```bash
-export HAPLOID_OVERRIDES=/path/to/fit_overrides.tsv
-STEPS=joint MODES=cbs_union OUT_SUFFIX=_user bash scripts/refit_downstream.sh sample1 sample2
-python3 scripts/cohort_table.py
+HAPLOID_OVERRIDES=/path/to/fit_overrides.tsv STEPS=joint MODES=cbs_union OUT_SUFFIX=_user \
+  bash scripts/refit_downstream.sh sample1 sample2
+HAPLOID_OVERRIDES=/path/to/fit_overrides.tsv python3 scripts/cohort_table.py
 ```
+
+Set it on each command, not with `export`: `joint_fit.py` applies `HAPLOID_OVERRIDES` to every fit it runs, so an
+exported value would also constrain later free fits (`run_cohort.sh`, `refit_downstream.sh` without `OUT_SUFFIX`),
+including the arm fit that tumor detection uses.
 
 Without `HAPLOID_OVERRIDES`, the report selects user refits using `work/user_constraints.tsv`.
 Cached user and ichorCNA-constrained fits are reported only while the sample remains in their current override table.
@@ -168,7 +172,7 @@ Rerunning `resolve_discordant.sh` with a sample excluded restores the free fit i
 | `HAPLOID_TUMOR_LLR_MIN` | 20 | detection threshold (log-likelihood of the best fit over the all-normal fit, arm mode) |
 | `HAPLOID_EVENT_MIN` | 10 | minimum summed evidence for a called event |
 | `HAPLOID_SEG_MODE` | `ascat` | segmentation for a direct `joint_fit.py` run (`arms`, `cbs_union`, `cbs_ichor`, `ascat`, `ascat_arms`) |
-| `HAPLOID_OVERRIDES` | `resources/fit_overrides.tsv` | per-sample purity / ploidy / diploid constraints |
+| `HAPLOID_OVERRIDES` | `resources/fit_overrides.tsv` | per-sample purity / ploidy / diploid constraints, applied to every fit `joint_fit.py` runs - set per command, not exported; `cohort_table.py` reads it (default `work/user_constraints.tsv`) to pick which user refits to report |
 | `HAPLOID_COHORT_BIAS` | `resources/cohort_bias_500kb.tsv` | second-pass depth bias (applied when present) |
 | `HAPLOID_CONTROL_BIAS` | 0 | 1 = subtract a healthy-control pipeline bias (`control_bin_mask.py`) |
 | `HAPLOID_RES` | `resources/` | reference resource folder |

@@ -32,6 +32,7 @@ one() {
 pids=(); failed=0
 wait_batch() {
   local pid
+  [ "${#pids[@]}" -gt 0 ] || return 0              # bash < 4.4: an empty "${pids[@]}" is unbound under set -u
   for pid in "${pids[@]}"; do wait "$pid" || failed=1; done
   pids=()
 }
