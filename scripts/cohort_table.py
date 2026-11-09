@@ -19,14 +19,17 @@ merged in when work/clonal_tf.tsv exists - run clonal_tf.py first. Where it and 
 explained a set of clonal events as "subclonal" at a higher TF (see work/plots/clonal_tf_<s>.png with --plot).
 Refitted samples: TF, ploidy, ctDNA and events come from the refit, tf_basis says which and what it cost (dLL_constraint):
   work/joint_modes/cbs_union_user/          values you gave (refit_with.sh) - first priority
-  work/joint_modes/cbs_union_ichorploidy/   ploidy held at ichorCNA's (resolve_discordant.sh)
+  work/joint_modes/cbs_union_ichorploidy/   ploidy held at ichorCNA's (resolve_discordant.sh), used only when holding it
+                                            costs <= --max-refit-cost (default 10): ichorCNA's ploidy is depth-only, so a
+                                            larger cost means the alleles reject it (e.g. a loss with balanced BAF = a
+                                            doubled genome). Otherwise the free fit is reported and tf_basis says why.
 TF_lo / TF_hi, ctDNA_lo / ctDNA_hi: segment-bootstrap 95% interval from the same fit as the reported estimate (tf_basis),
 detected samples only. Arm intervals can be wide: with few informative arms a resample may miss the events that anchor TF.
 TF is capped at 1.00 (the grid edge): read 1.00 as >= ~0.95. Constitutional (germline) copy-number changes at full level
 are fitted as clonal tumor events and can push a low-TF sample to ~1.0 - not separable without a matched normal. Cached refits are used only for samples in their current override table.
 User refits use HAPLOID_OVERRIDES when set, otherwise work/user_constraints.tsv.
 TF_uncertain = interval wider than --max-tf-width (default 0.2): the estimate depends on which events drive it.
-Usage: cohort_table.py [--min-tf 0.10] [--min-baf-bins 2000] [--max-tf-width 0.2]
+Usage: cohort_table.py [--min-tf 0.10] [--min-baf-bins 2000] [--max-tf-width 0.2] [--max-refit-cost 10]
 Output: work/cohort_summary.tsv, work/cohort_events.tsv (one row per called event, with the mode it came from)
 """
 import argparse
@@ -39,7 +42,8 @@ from summary_tables import read_summaries
 ROOT = Path(__file__).resolve().parents[1]
 ap = argparse.ArgumentParser(); ap.add_argument("--min-tf", type=float, default=0.10)
 ap.add_argument("--min-baf-bins", type=int, default=2000)
-ap.add_argument("--max-tf-width", type=float, default=0.2); A = ap.parse_args()
+ap.add_argument("--max-tf-width", type=float, default=0.2)
+ap.add_argument("--max-refit-cost", type=float, default=10.0); A = ap.parse_args()
 J = ROOT / "work/joint_modes"
 arms = read_summaries(J / "arms").set_index("sample")
 cbs = read_summaries(J / "cbs_union").set_index("sample")
@@ -80,6 +84,11 @@ for s, a in arms.iterrows():
         and str(cbs.loc[s, "tumor_detected"]) == "True" else "arms"   # an undetected cbs_union TF is a grid edge
     held = next(((d, why) for d, why in REFITS
                  if det and s in active_refits[d] and (J / d / f"{s}.joint_summary.tsv").exists()), None)
+    rejected = None
+    if held and held[0] == "cbs_union_ichorploidy":       # the data must not reject ichorCNA's ploidy
+        cost = float(pd.read_csv(J / f"{held[0]}/{s}.joint_summary.tsv", sep="\t").iloc[0].dLL_constraint)
+        if cost < -A.max_refit_cost:
+            held, rejected = None, cost
     if held:                                              # refitted: events from that fit too
         use = "cbs_union"
     folder = held[0] if held else use
@@ -109,6 +118,8 @@ for s, a in arms.iterrows():
                     tf_basis=use if det else "")
     if held:
         rows[-1].update(tf_basis=f"cbs_union, {held[1]}: {src.constraints} (dLL_constraint {src.dLL_constraint})")
+    elif rejected is not None and det:
+        rows[-1].update(tf_basis=f"{use}, ichorCNA ploidy rejected (dLL_constraint {rejected})")
     for e in ev.itertuples():
         events.append(dict(sample=s, mode=folder, chrom=e.chrom, start=int(e.start), end=int(e.end), type=e.type,
                            mb=round(e.mb, 1), focal=e.focal))
