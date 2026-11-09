@@ -1,6 +1,6 @@
 """One row per sample from the joint-fit modes, following the dilution results:
   detection                    : arms mode (cleanest detection)
-  TF, ploidy, events           : cbs_union when detected with arms TF >= --min-tf (most sensitive, few false calls there;
+  TF, ploidy, events           : cbs_union when detected with arms TF >= --min-tf and cbs_union also detects tumor (most sensitive, few false calls there;
                                  its finer segments separate a one-copy gain at high TF from a two-copy gain at low TF,
                                  which arm averages blur), otherwise arms (TF within ~0.01 down to TF 0.10; very low TF
                                  gives too little signal for breakpoints). tf_basis names the fit.
@@ -76,7 +76,8 @@ for folder, f in [("cbs_union_user", USER_OVERRIDES),
 rows, events = [], []
 for s, a in arms.iterrows():
     det = str(a.tumor_detected) == "True"
-    use = "cbs_union" if det and a.joint_TF >= A.min_tf and s in cbs.index else "arms"
+    use = "cbs_union" if det and a.joint_TF >= A.min_tf and s in cbs.index \
+        and str(cbs.loc[s, "tumor_detected"]) == "True" else "arms"   # an undetected cbs_union TF is a grid edge
     held = next(((d, why) for d, why in REFITS
                  if det and s in active_refits[d] and (J / d / f"{s}.joint_summary.tsv").exists()), None)
     if held:                                              # refitted: events from that fit too

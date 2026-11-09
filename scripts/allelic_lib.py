@@ -34,7 +34,8 @@ def ichor_kv(s):
 
 def params(s):
     kv = ichor_kv(s)
-    return float(kv["Tumor Fraction"]), float(kv["Subclone Fraction"])
+    sf = kv["Subclone Fraction"]                          # ichorCNA writes "NA" when there is no subclone
+    return float(kv["Tumor Fraction"]), (np.nan if sf == "NA" else float(sf))
 
 
 def ichor_ploidy(s):
