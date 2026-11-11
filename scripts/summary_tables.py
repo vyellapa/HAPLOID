@@ -29,4 +29,5 @@ def merge_summaries(folder):
             table.to_csv(tmp, sep="\t", index=False)
             os.replace(tmp, folder / "joint_summary.tsv")
         finally:
-            tmp.unlink(missing_ok=True)
+            if tmp.exists():                              # unlink(missing_ok=) needs Python >= 3.8
+                tmp.unlink()
