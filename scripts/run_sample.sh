@@ -2,6 +2,7 @@
 # Full pipeline for one sample:
 #   markdup (chr1-22) -> genotype likelihoods + allele depths at panel sites -> GLIMPSE2 impute/phase per chromosome
 #   -> haplotype read counts -> depth (ichorCNA correctedDepth) + phased BAF bins -> ASCAT segmentation -> joint fit
+#   -> plots (work/plots/cna_compare_<sample>.png, cna_<sample>.png; a plotting error does not fail the sample)
 # Resumable: each finished step leaves work/done/<sample>.<step> (holding its runtime in s) and is skipped on rerun.
 # On failure, work/done/<sample>.FAILED names the step; delete it (and fix the cause) to retry.
 # Usage: run_sample.sh <sample> <bam>
@@ -71,6 +72,10 @@ do_joint() {      # one fit per segment mode: arms = detection + TF, cbs_union =
   for m in ${MODES:-arms cbs_union ascat}; do grep "===" "$LOGD/$S.joint.$m.log" | sed "s/^/  [$m] /" || true; done
   [ "$fail" = 0 ] || { echo "  joint fit failed (see $LOGD/$S.joint.<mode>.log)" >&2; return 1; }
 }
+do_plot() {       # both figures from plot_cna_compare.py
+  cd "$SC" && "$PY" plot_cna_compare.py "$S" > "$LOGD/$S.plot.log" 2>&1 \
+    || echo "  plot failed (see $LOGD/$S.plot.log)" >&2
+}
 do_cleanup() {
   rm -rf "$ROOT/work/glimpse/$S/chunks"
   [ "$KEEP_BAM" = 1 ] || rm -f "$MD" "$MD.bai"
@@ -84,5 +89,6 @@ step hap     do_hap
 step depth   do_depth
 step ascat   do_ascat
 step joint   do_joint
+step plot    do_plot
 step cleanup do_cleanup
 echo "[$(date '+%F %T')] $S DONE"

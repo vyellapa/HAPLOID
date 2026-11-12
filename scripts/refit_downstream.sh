@@ -8,7 +8,7 @@
 #        STEPS ("bins seg joint"; e.g. STEPS=joint to refit only), BAM_DIR, HAPLOID_OVERRIDES (joint_fit.py constraints),
 #        OUT_SUFFIX (output to work/joint_modes/<mode><suffix>, e.g. "_constrained", keeping the free fits to compare)
 # Run with bash (zsh does not split "$@" lists given as one string).  Whole cohort:  refit_downstream.sh $(cat list)
-# Output: work/joint_modes/<mode>${OUT_SUFFIX}/
+# Output: work/joint_modes/<mode>${OUT_SUFFIX}/, plots redrawn in work/plots/ (plot_cna_compare.py)
 set -euo pipefail
 ROOT=$(cd "$(dirname "$0")/.." && pwd); SC=$ROOT/scripts
 export PY=${PY:-python3} MODES=${MODES:-arms cbs_union ascat} STEPS=${STEPS:-bins seg joint} ROOT SC
@@ -27,6 +27,8 @@ one() {
     mkdir -p "$ROOT/work/joint_modes/$m${OUT_SUFFIX:-}"
     HAPLOID_SEG_MODE=$m HAPLOID_JOINT_OUT=$ROOT/work/joint_modes/$m${OUT_SUFFIX:-} "$PY" joint_fit.py "$s" >> "$ROOT/logs/samples/$s.refit.log" 2>&1
   done
+  "$PY" plot_cna_compare.py "$s" >> "$ROOT/logs/samples/$s.refit.log" 2>&1 \
+    || echo "[$(date '+%T')] $s plot failed (see logs/samples/$s.refit.log)" >&2
   echo "[$(date '+%T')] $s refit done"
 }
 pids=(); failed=0

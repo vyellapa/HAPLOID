@@ -44,6 +44,7 @@ genome-doubled state).
 | `joint_modes/<mode>/<sample>.joint_segments.tsv` | per segment: depth, phased imbalance, fitted allele-specific state, evidence, call/filter |
 | `joint_modes/<mode>/<sample>.joint_summary.tsv` | per sample fit: TF, ploidy, ctDNA fraction, detection score, alternatives |
 | `plots/cna_compare_<sample>.png` | depth and BAF tracks with each method's segments and copy-number profiles |
+| `plots/cna_<sample>.png` | depth and BAF tracks (taller) with the cbs_union fit and its refits; one A4 landscape page per sample |
 
 **Tumor fraction vs. ctDNA fraction.** `TF` is the tumor *cell* fraction; `ctDNA_fraction` = TF x ploidy /
 (TF x ploidy + 2(1 - TF)) is the tumor share of the cfDNA. Diploid and genome-doubled readings of the same data often
