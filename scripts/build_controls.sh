@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # A lab's own healthy-control references, from healthy-control BAMs (or their 500 kb readCounter wigs):
-#   ichor_pon_median.rds (+ .txt)  ichorCNA panel of normals (createPanelOfNormals.R): ichorCNA normalises each sample's
-#                                  depth with it when ichorCNA is run here (run_bam.sh --controls)
+#   ichor_pon_median.rds (+ .txt)  panel of normals (createPanelOfNormals.R): the depth HMM normalises each
+#                                  sample's depth with it when run here (run_bam.sh --controls)
 #   control_bin_mask_500kb.tsv     bins that misbehave in the controls (control_bin_mask.py), left out of the fit;
 #                                  replaces the public bin mask
 #   pipeline_bias_500kb.tsv        per-bin median control logR (subtracted only with HAPLOID_CONTROL_BIAS=1)
@@ -12,7 +12,7 @@
 # Usage: build_controls.sh [--bam CTRL.bam ...] [--wig CTRL.wig ...] [--list FILE] [--out DIR]
 #   --list FILE: one BAM or wig path per line.  Control names are the file names without .bam / .wig.
 #   env: JOBS (BAMs counted in parallel, 4), REF, HAPLOID_CONTROLS_OUT (default output folder, work/controls)
-# Then: run_bam.sh --controls DIR ...   (run_cohort.sh: HAPLOID_CONTROLS=DIR, ichorCNA PoN not applied there)
+# Then: run_bam.sh --controls DIR ...   (run_cohort.sh: HAPLOID_CONTROLS=DIR; the panel of normals is not applied there)
 set -euo pipefail
 ROOT=$(cd "$(dirname "$0")/.." && pwd); SC=$ROOT/scripts
 . "$SC/bam_lib.sh"
@@ -63,7 +63,7 @@ if [ "${#todo[@]}" -gt 0 ]; then
 fi
 wigs=(); for n in "${names[@]}"; do wigs+=("$OUT/wigs/$n.wig"); done
 for w in "${wigs[@]}"; do [ -s "$w" ] || die "$w missing"; done
-# sex as ichorCNA infers it (fraction of reads on chrY >= 0.001). Only chrX/chrY depend on it: the bin mask uses chr1-22,
+# sex inferred as the depth HMM does it (fraction of reads on chrY >= 0.001). Only chrX/chrY depend on it: the bin mask uses chr1-22,
 # the panel centres each control's chrX, and HAPLOID fits chr1-22 only. Panel chrY = median over the controls' mix.
 yfrac() { awk '/^fixedStep/ {split($2, a, "="); c = a[2]; next} {t += $1; if (c == "chrY") y += $1} END {printf "%.5f", t ? y / t : 0}' "$1"; }
 { printf 'control\tsource\tchrY_read_fraction\tsex\n'
@@ -73,16 +73,16 @@ yfrac() { awk '/^fixedStep/ {split($2, a, "="); c = a[2]; next} {t += $1; if (c 
 n_male=$(awk -F'\t' 'NR > 1 && $4 == "male"' "$OUT/controls.tsv" | wc -l | tr -d ' ')
 echo "[$(ts)] ${#wigs[@]} controls: $n_male male, $((${#wigs[@]} - n_male)) female"
 
-# ---- 2. ichorCNA panel of normals (chr1-22, X, Y: the chromosomes run_ichor.sh analyses) ----
-EXT=$(ichor_extdata) || die "ichorCNA not installed"
-echo "[$(ts)] ichorCNA panel of normals from ${#wigs[@]} controls"
+# ---- 2. panel of normals for the depth HMM (chr1-22, X, Y: the chromosomes run_ichor.sh analyses) ----
+EXT=$(ichor_extdata) || die "depth HMM (ichorCNA) not installed"
+echo "[$(ts)] panel of normals from ${#wigs[@]} controls"
 printf '%s\n' "${wigs[@]}" > "$OUT/wigs.txt"
 rm -f "$OUT"/ichor_pon_median.*
 Rscript "${ICHOR_PON_SCRIPT:-$(command -v createPanelOfNormals.R)}" --filelist "$OUT/wigs.txt" \
   --gcWig "$EXT/gc_hg38_500kb.wig" --mapWig "$EXT/map_hg38_500kb.wig" \
   --centromere "$EXT/GRCh38.GCA_000001405.2_centromere_acen.txt" --chrs 'c(1:22, "X", "Y")' \
   --outfile "$OUT/ichor_pon" > "$OUT/ichor_pon.log" 2>&1 \
-  || die "createPanelOfNormals.R failed (see $OUT/ichor_pon.log)"
+  || die "panel of normals failed (see $OUT/ichor_pon.log)"
 [ -s "$OUT/ichor_pon_median.rds" ] || die "no panel written (see $OUT/ichor_pon.log)"
 
 # ---- 3. HAPLOID control bin mask ----
@@ -91,7 +91,7 @@ ICHOR_EXTDATA=$EXT "$PY" "$SC/control_bin_mask.py" --pipeline "${wigs[@]}" --out
 
 cat << DONE
 [$(ts)] controls ready in $OUT:
-  ichor_pon_median.rds        ichorCNA panel of normals (${#wigs[@]} controls: $n_male male, $((${#wigs[@]} - n_male)) female)
+  ichor_pon_median.rds        panel of normals (${#wigs[@]} controls: $n_male male, $((${#wigs[@]} - n_male)) female)
   control_bin_mask_500kb.tsv  $(($(wc -l < "$OUT/control_bin_mask_500kb.tsv") - 1)) masked 500 kb bins
 Use them with: run --controls <this folder> ...  (it replaces the public bin mask; supplied --ichor results are used as given)
 DONE

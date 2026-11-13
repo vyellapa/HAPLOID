@@ -163,7 +163,7 @@ class PipelineRegressions(unittest.TestCase):
         self.write_overrides("batch_constraints.tsv", [])
         table = self.cohort(env=env)
         self.assertTrue((table.TF == 0.6).all())
-        self.assertTrue(table.tf_basis.str.contains("ichorCNA").all())
+        self.assertTrue(table.tf_basis.str.contains("depth HMM").all())
         self.write_overrides("fit_overrides_ichor_ploidy.tsv", [])
         table = self.cohort(env=env)
         self.assertTrue((table.TF == 0.4).all())

@@ -18,15 +18,15 @@ Usage: haploid COMMAND [arguments...]
 
   run [--controls DIR] --bam BAM [--sample NAME] [--ichor DIR] [--bam ...]
   run [--controls DIR] --sheet SAMPLES.tsv
-                     Whole analysis: ichorCNA (unless --ichor gives existing 500 kb
-                     results), phasing, joint fit, ploidy check, plots and a PDF.
-                     Sheet: tab-separated, header sample, bam[, ichor]. Results in
-                     $HAPLOID_FINAL (full image: /out/final). --controls: a folder
-                     made by 'controls' (its bin mask replaces the public one; its
-                     panel of normals is used when ichorCNA runs here).
+                     Whole analysis: read depth + depth HMM (unless --ichor gives
+                     existing 500 kb results), phasing, joint fit, ploidy check,
+                     plots and a PDF. Sheet: tab-separated, header sample, bam[,
+                     ichor]. Results in $HAPLOID_FINAL (full image: /out/final).
+                     --controls: a folder made by 'controls' (its bin mask replaces
+                     the public one; its panel of normals is used for depth).
   controls --bam CTRL.bam ... [--wig CTRL.wig ...] [--list FILE] [--out DIR]
                      Your own healthy-control references from healthy-control BAMs
-                     aligned exactly like the samples (>= 10 recommended): ichorCNA
+                     aligned exactly like the samples (>= 10 recommended): depth
                      panel of normals + HAPLOID bin mask. Default output:
                      $HAPLOID_CONTROLS_OUT (full image: /out/controls).
   cohort [BAM ...]    Prepare shared references, run samples, and build reports.
@@ -43,7 +43,7 @@ Usage: haploid COMMAND [arguments...]
   exec COMMAND ...   Run any command, including reference-preparation scripts.
 
 Mount prepared reference resources at /opt/haploid/resources, BAMs and optional
-ichorCNA results at /data/bams, and persistent output directories at
+depth results at /data/bams, and persistent output directories at
 /opt/haploid/work and /opt/haploid/logs. Set REF if the FASTA has another name.
 Defaults: JOBS=1, CORES=4, PREP_JOBS=1. See README.md for run examples.
 HELP
@@ -116,7 +116,7 @@ case "$command" in
       [[ "$help" == *--input* || "$help" == *--reference* || "$help" == *--bam-file* ]] \
         || { echo "ERROR: $tool is not runnable: $help" >&2; exit 1; }
     done
-    echo 'GLIMPSE2 tools: OK'
+    echo 'Phasing tools: OK'
     echo 'HAPLOID dependencies: OK'
     ;;
   exec)

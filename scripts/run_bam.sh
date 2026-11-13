@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
-# Whole analysis from BAMs to final results: ichorCNA (unless given) -> run_cohort.sh (markdup ... joint fit, plots)
-# -> resolve_discordant.sh -> final_report.py.
+# Whole analysis from BAMs to final results: depth bins + depth HMM (run_ichor.sh, unless results are given)
+# -> run_cohort.sh (markdup ... joint fit, plots) -> resolve_discordant.sh -> final_report.py.
 # Usage: run_bam.sh [--controls DIR] --bam X.bam [--sample NAME] [--ichor DIR] [--bam Y.bam ...]
 #        run_bam.sh [--controls DIR] --sheet samples.tsv   (tab-separated with a header: sample, bam, and optionally ichor)
 #   --controls DIR: the lab's own healthy-control references (build_controls.sh): its bin mask replaces the public one,
-#                and ichorCNA run here normalises with its panel of normals (supplied --ichor results are used as given)
-#   --ichor DIR: existing ichorCNA results for that BAM; the folder may hold one sample's files or several samples'
-#                (<name>[_Y].correctedDepth.txt / .params.txt / .seg.txt, matched by the sample name). Used only at
-#                500 kb bins (the bins every later step is built on); at any other bin size ichorCNA is run here.
+#                and the depth HMM run here normalises with its panel of normals (supplied --ichor results used as given)
+#   --ichor DIR: existing depth results for that BAM (ichorCNA output); the folder may hold one sample's files or several
+#                samples' (<name>[_Y].correctedDepth.txt / .params.txt / .seg.txt, matched by the sample name). Used only
+#                at 500 kb bins (the bins every later step is built on); at any other bin size they are recomputed here.
 #   env: CORES (4), JOBS (1), REF, HAPLOID_FINAL (work/final), HAPLOID_CONTROLS (same as --controls)
 # Output: $HAPLOID_FINAL/summary.tsv, events.tsv, plots/, report.pdf; everything else under work/ and logs/
 set -euo pipefail
@@ -38,7 +38,7 @@ while [ $# -gt 0 ]; do
 done
 [ "${#bams[@]}" -gt 0 ] || die "no BAMs given (--bam or --sheet)"
 
-# ---- healthy controls: their bin mask (read by every later step) and ichorCNA panel of normals ----
+# ---- healthy controls: their bin mask (read by every later step) and panel of normals for the depth HMM ----
 pon_note=""
 if [ -n "${HAPLOID_CONTROLS:-}" ]; then
   [ -s "$HAPLOID_CONTROLS/control_bin_mask_500kb.tsv" ] \
@@ -47,19 +47,19 @@ if [ -n "${HAPLOID_CONTROLS:-}" ]; then
   if [ -s "$HAPLOID_CONTROLS/ichor_pon_median.rds" ]; then
     export ICHOR_PON=$HAPLOID_CONTROLS/ichor_pon_median.rds; pon_note=" with panel of normals ($ICHOR_PON)"
   fi
-  echo "[$(ts)] healthy controls: $HAPLOID_CONTROLS (bin mask${pon_note:+ + ichorCNA panel of normals})"
+  echo "[$(ts)] healthy controls: $HAPLOID_CONTROLS (bin mask${pon_note:+ + panel of normals})"
 fi
 
 ichor_files() {   # <dir> <sample> -> prints the correctedDepth path prefix ("<dir>/<name>.") or fails
   local d=$1 s=$2 hits
-  [ -d "$d" ] || { echo "ichorCNA folder not found: $d" >&2; return 1; }
+  [ -d "$d" ] || { echo "depth results folder not found: $d" >&2; return 1; }
   mapfile -t hits < <(find "$d" -maxdepth 2 -name '*correctedDepth.txt' | sort)
   if [ "${#hits[@]}" -gt 1 ]; then
     mapfile -t hits < <(printf '%s\n' "${hits[@]}" | awk -v s="$s" '{n = $0; sub(/.*\//, "", n)} index(n, s) == 1')
   fi
-  [ "${#hits[@]}" -eq 1 ] || { echo "ichorCNA: expected one *correctedDepth.txt for $s in $d, found ${#hits[@]}" >&2; return 1; }
+  [ "${#hits[@]}" -eq 1 ] || { echo "depth results: expected one *correctedDepth.txt for $s in $d, found ${#hits[@]}" >&2; return 1; }
   local p=${hits[0]%correctedDepth.txt}
-  [ -s "${p}params.txt" ] && [ -s "${p}seg.txt" ] || { echo "ichorCNA: ${p}params.txt or ${p}seg.txt missing" >&2; return 1; }
+  [ -s "${p}params.txt" ] && [ -s "${p}seg.txt" ] || { echo "depth results: ${p}params.txt or ${p}seg.txt missing" >&2; return 1; }
   echo "$p"
 }
 
@@ -84,7 +84,7 @@ for k in "${!bams[@]}"; do
         rm -f "$d/${s}_Y.$f.txt"; cp "${p}$f.txt" "$d/${s}_Y.$f.txt"; done
       src="supplied ($(dirname "$p"))"
     else
-      echo "[$(ts)] $s: supplied ichorCNA bins are $w bp, not 500 kb - running ichorCNA at 500 kb instead"
+      echo "[$(ts)] $s: supplied depth results use $w bp bins, not 500 kb - recomputing at 500 kb"
       src="computed$pon_note (supplied results at $w bp bins not usable)"
     fi
   fi
@@ -92,17 +92,17 @@ for k in "${!bams[@]}"; do
     src=${src:-computed$pon_note}         # rerun when an earlier run here used a different panel of normals (or none)
     if [ ! -s "$d/${s}_Y.correctedDepth.txt" ] || [ "$(cat "$d/ichor_source.txt" 2>/dev/null)" != "$src" ]; then
       rm -f "$d/${s}_Y."*.txt
-      echo "[$(ts)] $s: ichorCNA"
-      bash "$SC/run_ichor.sh" "$s" "$d/$s.bam" "$d" > "$ROOT/logs/$s.ichor.log" 2>&1 \
-        || die "ichorCNA failed for $s (see logs/$s.ichor.log)"
-      tail -1 "$ROOT/logs/$s.ichor.log"
+      echo "[$(ts)] $s: depth bins + depth HMM"
+      bash "$SC/run_ichor.sh" "$s" "$d/$s.bam" "$d" > "$ROOT/logs/$s.depth.log" 2>&1 \
+        || die "depth HMM failed for $s (see logs/$s.depth.log)"
+      tail -1 "$ROOT/logs/$s.depth.log"
     fi
   fi
   echo "$src" > "$d/ichor_source.txt"
   staged+=("$d/$s.bam")
 done
 
-# ---- pipeline, then the ichorCNA-ploidy check, then final results ----
+# ---- pipeline, then the depth-ploidy check, then final results ----
 BAM_DIR=$IN HAPLOID_NO_NEXT=1 bash "$SC/run_cohort.sh" "${staged[@]}"
 failed=0; ok=()
 for b in "${staged[@]}"; do

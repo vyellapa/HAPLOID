@@ -71,7 +71,7 @@ def fit_flag(seg, det):
     return "uniform_imbalance" if st.max() > 0.9 * st.sum() and st.idxmax() not in ("1:1", "2:2") else ""
 
 
-REFITS = [("cbs_union_user", "your values"), ("cbs_union_ichorploidy", "ploidy held at ichorCNA's")]
+REFITS = [("cbs_union_user", "your values"), ("cbs_union_ichorploidy", "ploidy held at the depth HMM's")]
 USER_OVERRIDES = Path(os.environ.get("HAPLOID_OVERRIDES", ROOT / "work/user_constraints.tsv"))
 active_refits = {}
 for folder, f in [("cbs_union_user", USER_OVERRIDES),
@@ -119,7 +119,7 @@ for s, a in arms.iterrows():
     if held:
         rows[-1].update(tf_basis=f"cbs_union, {held[1]}: {src.constraints} (dLL_constraint {src.dLL_constraint})")
     elif rejected is not None and det:
-        rows[-1].update(tf_basis=f"{use}, ichorCNA ploidy rejected (dLL_constraint {rejected})")
+        rows[-1].update(tf_basis=f"{use}, depth-HMM ploidy rejected (dLL_constraint {rejected})")
     for e in ev.itertuples():
         events.append(dict(sample=s, mode=folder, chrom=e.chrom, start=int(e.start), end=int(e.end), type=e.type,
                            mb=round(e.mb, 1), focal=e.focal))

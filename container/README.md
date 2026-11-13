@@ -1,28 +1,29 @@
 # HAPLOID container
 
-The Linux amd64 image includes the HAPLOID scripts and their Python/R dependencies,
-ASCAT 3.2.0, DNAcopy, samtools, bcftools, htslib, liftOver, and the four GLIMPSE2
-2.0.0 tools. GLIMPSE runs directly inside this image. Docker is not needed inside
-the container.
+The Linux amd64 image includes the HAPLOID scripts and every tool they call: read and variant handling, panel
+liftover, the depth HMM, ASPCF and CBS segmentation, and the static imputation/phasing binaries, which run directly
+inside the image. Docker is not needed inside the container. The tools and their licenses are listed in the main
+README under *Third-party software and data*.
 
 Docker Hub image: [`vyellapa/haploid:latest`](https://hub.docker.com/r/vyellapa/haploid).
 
 Two images:
 
-- `vyellapa/haploid:latest` - code and tools (including ichorCNA, pinned commit, with its panels of normals removed).
+- `vyellapa/haploid:latest` - code and tools (the depth HMM at a pinned version, with its bundled panels of normals
+  removed).
   Reference data and sequencing data are supplied as mounts, as described below.
-- `vyellapa/haploid:full` - the same plus the public reference data (~15 GB): hg38, the prepared GLIMPSE2 1000
-  Genomes reference, panel sites, genetic maps and region exclusions. `haploid run` goes from a BAM to final
+- `vyellapa/haploid:full` - the same plus the public reference data (~15 GB): hg38, the prepared 1000 Genomes
+  phasing reference, panel sites, genetic maps and region exclusions. `haploid run` goes from a BAM to final
   results with one `/out` mount; see the main README's quick start. It holds nothing derived from samples (no
   healthy-control mask, cohort bias, constraints or panel of normals). Users build their own from their healthy
   controls with `haploid controls` and pass the folder to `run --controls` (main README).
 
-Neither image includes BAMs, existing results or credentials. The fragment-count alternative to ichorCNA depth
-requires a prepared panel of normals (see below).
+Neither image includes BAMs, existing results or credentials. The fragment-count alternative to the depth HMM's
+corrected depth requires a prepared panel of normals (see below).
 
 ## Build the full image
 
-From a machine with the prepared resources (`resources/`, a complete GLIMPSE2 reference with its `.done.chr*`
+From a machine with the prepared resources (`resources/`, a complete phasing reference with its `.done.chr*`
 markers, hg38.fa + .fai) and the base image built:
 
 ```bash
@@ -46,7 +47,7 @@ docker push "$HAPLOID_IMAGE"
 ```
 
 The build runs dependency checks and the synthetic regression tests. The static
-GLIMPSE release supports x86-64, so the image is built for `linux/amd64`.
+phasing binaries are x86-64 only, so the image is built for `linux/amd64`.
 
 ## Mount data and run
 
@@ -99,7 +100,7 @@ these settings according to available memory and CPU. Other existing `HAPLOID_*`
 `ICHOR_*`, `MODES`, and `KEEP_BAM` settings can be passed with Docker's `-e` option.
 All file paths in environment variables must be container paths.
 
-Without ichorCNA corrected-depth files, put `ichor_pon_hg38_500kb.tsv` in
+Without corrected-depth files from the depth HMM, put `ichor_pon_hg38_500kb.tsv` in
 `work/depth/` and add `-e ALLOW_FRAGMENT_DEPTH=1` before the image name. The runner
 then builds the shared GC table and uses its fragment-count depth method.
 

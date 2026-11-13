@@ -28,6 +28,8 @@ ROOT = Path(__file__).resolve().parents[1]
 SAMPLES = sys.argv[1:] or sys.exit("usage: plot_cna_compare.py <samples...>")
 MODES = ["ascat", "arms", "cbs_union", "cbs_union_ichorploidy", "cbs_union_user"]   # refit rows only when present
 COMPACT_MODES = ["cbs_union", "cbs_union_ichorploidy", "cbs_union_user"]
+LABEL = {"ascat": "ASPCF segments", "arms": "chromosome arms", "cbs_union": "cbs_union",    # shown in plot titles
+         "cbs_union_ichorploidy": "cbs_union, ploidy held at the depth HMM's", "cbs_union_user": "cbs_union, your values"}
 CALL = {"gain": LINE["orange"], "loss": LINE["blue"], "CN-LOH": LINE["teal"]}
 ICHOR, JOINT, HMM, MINOR = LINE["red"], LINE["blue"], LINE["orange"], LINE["red"]
 FAI = RES / "hg38.fa.fai"
@@ -116,7 +118,7 @@ def draw(s, bins, iseg, itf, ipl, J, compact):
         pred = np.log2((2 * (1 - rho) + rho * tot) / (2 * (1 - rho) + rho * psi))
         steps(a, seg, pred, color=JOINT, lw=1.6)
     a.set_ylim(-1.2, 1.2); a.axhline(0, color="black", lw=0.6, ls=(0, (2, 2)), zorder=0)
-    a.set_title("depth: 500 kb bins (grey) · ichorCNA segments (red) · joint fit cbs_union prediction (blue)",
+    a.set_title("depth: 500 kb bins (grey) · depth HMM segments (red) · joint fit cbs_union prediction (blue)",
                 fontsize=9, color="black", loc="left")
     # ---- alleles ----
     a = ax[1]; frame(a, "BAF")
@@ -145,8 +147,8 @@ def draw(s, bins, iseg, itf, ipl, J, compact):
         if iseg is not None:
             steps(a, iseg, iseg.Corrected_Copy_Number.clip(upper=6), color="black", lw=1.8)
         a.set_ylim(-0.3, 6.3); a.set_yticks([0, 2, 4, 6])
-        a.set_title(f"ichorCNA · TF {itf:.2f} · ploidy {ipl:.2f} (total copy number only)" if iseg is not None else
-                    f"ichorCNA: no {s}_500k/{s}_Y.seg.txt found next to the project (copy the ichorCNA results to show it)",
+        a.set_title(f"depth HMM · TF {itf:.2f} · ploidy {ipl:.2f} (total copy number only)" if iseg is not None else
+                    f"depth HMM: no {s}_500k/{s}_Y.seg.txt found next to the project (copy the depth results to show it)",
                     fontsize=9, color="black", loc="left")
     # ---- joint fit modes ----
     for a, (m, (seg, sm)) in zip(ax[2 if compact else 3:], J.items()):
@@ -164,9 +166,9 @@ def draw(s, bins, iseg, itf, ipl, J, compact):
         ct = f" · ctDNA {sm.ctDNA_fraction:.2f}" if "ctDNA_fraction" in sm and det else ""
         amb = " · AMBIGUOUS ploidy" if str(sm.ambiguous) == "True" else ""
         con = f" · constrained: {sm.constraints} (dLL {sm.dLL_constraint:.0f})" if isinstance(sm.get("constraints"), str) and sm.constraints else ""
-        head = (f"joint fit [{m}]{con} · TF {sm.joint_TF:.2f} · ploidy {sm.joint_ploidy:.2f}{ct} · score {sm.tumor_llr:.0f}"
+        head = (f"joint fit [{LABEL.get(m, m)}]{con} · TF {sm.joint_TF:.2f} · ploidy {sm.joint_ploidy:.2f}{ct} · score {sm.tumor_llr:.0f}"
                 f" · other-ploidy dLL {sm.dLL_other_ploidy:.0f}{amb} · {int(sm.calls_pass)} passing calls"
-                if det else f"joint fit [{m}] · tumor NOT detected (score {sm.tumor_llr:.1f})")
+                if det else f"joint fit [{LABEL.get(m, m)}] · tumor NOT detected (score {sm.tumor_llr:.1f})")
         a.set_title(head, fontsize=9, color="black", loc="left")
     ax[-1].set_xticks([OFF[c] + fai[c] / 2 for c in CHR]); ax[-1].set_xticklabels([c[3:] for c in CHR], fontsize=8)
     handles = [Line2D([], [], color="black", lw=1.8, label="total CN"), Line2D([], [], color=MINOR, lw=1.6, label="minor-allele CN")]

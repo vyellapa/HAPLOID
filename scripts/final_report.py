@@ -1,6 +1,7 @@
 """Final results for a run (run_bam.sh): the samples' rows of work/cohort_summary.tsv / cohort_events.tsv, their plots,
 and a PDF (A4 landscape: a summary table, then one page per sample with work/plots/cna_<sample>.png).
-ichorCNA_source says whether ichorCNA results were supplied or computed here (work/inputs/<s>_500k/ichor_source.txt).
+ichor_TF / ichor_ploidy = the depth-only HMM estimate; ichorCNA_source = whether those results were supplied or computed
+here (work/inputs/<s>_500k/ichor_source.txt).
 Usage: final_report.py <samples...>     env: HAPLOID_FINAL (output folder, default work/final)
 Output: summary.tsv, events.tsv, plots/cna_<s>.png + cna_compare_<s>.png, report.pdf
 """
@@ -52,7 +53,7 @@ def row(r):
             "\n".join(flags), textwrap.fill(evs, 48)]
 
 
-cols = ["Sample", "Status", "TF (95%)", "Ploidy", "ctDNA", "ichorCNA\nTF / ploidy", "ichorCNA\nresults", "QC", "Events"]
+cols = ["Sample", "Status", "TF (95%)", "Ploidy", "ctDNA", "Depth HMM\nTF / ploidy", "Depth\nresults", "QC", "Events"]
 WIDTHS = [0.25, 0.075, 0.09, 0.045, 0.045, 0.075, 0.07, 0.09, 0.26]
 PER_PAGE_LINES = 34
 rows = [row(r) for _, r in S.iterrows()]
@@ -89,9 +90,9 @@ with PdfPages(OUT / "report.pdf") as pdf:
         det = str(r.tumor_detected) == "True"
         fig.text(0.03, 0.92, (f"detected · TF {num(r.TF)} ({num(r.TF_lo)}-{num(r.TF_hi)}) · ploidy {num(r.ploidy)} · "
                               f"ctDNA {num(r.ctDNA_fraction)}" if det else "not detected")
-                 + f" · ichorCNA {num(r.ichor_TF)} / {num(r.ichor_ploidy)}"
+                 + f" · depth HMM {num(r.ichor_TF)} / {num(r.ichor_ploidy)}"
                  + (f" ({r.ichorCNA_source})" if r.ichorCNA_source else "")
-                 + (f" · {r.tf_basis}" if isinstance(r.tf_basis, str) and "ichorCNA" in r.tf_basis else ""), fontsize=8.5)
+                 + (f" · {r.tf_basis}" if isinstance(r.tf_basis, str) and "depth HMM" in r.tf_basis else ""), fontsize=8.5)
         ax = fig.add_axes([0.02, 0.02, 0.96, 0.87]); ax.axis("off")
         ax.imshow(plt.imread(p), interpolation="lanczos"); ax.set_anchor("N")
         pdf.savefig(fig, dpi=200); plt.close(fig)

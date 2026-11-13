@@ -30,4 +30,4 @@ rm -f "$OUT"/*.RData
 for f in correctedDepth.txt params.txt seg.txt; do
   [ -s "$OUT/${S}_Y.$f" ] || { echo "ichorCNA did not write $OUT/${S}_Y.$f" >&2; exit 1; }
 done
-echo "$S ichorCNA${ICHOR_PON:+ (panel of normals)}: TF $(awk -F'\t' '/^Tumor Fraction:/ {print $2}' "$OUT/${S}_Y.params.txt"), ploidy $(awk -F'\t' '/^Ploidy:/ {print $2}' "$OUT/${S}_Y.params.txt")"
+echo "$S depth HMM${ICHOR_PON:+ (panel of normals)}: TF $(awk -F'\t' '/^Tumor Fraction:/ {print $2}' "$OUT/${S}_Y.params.txt"), ploidy $(awk -F'\t' '/^Ploidy:/ {print $2}' "$OUT/${S}_Y.params.txt")"
