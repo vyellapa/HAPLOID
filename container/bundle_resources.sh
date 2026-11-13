@@ -27,7 +27,11 @@ link "$FA" "$OUT/hg38/hg38.fa"; link "$FA.fai" "$OUT/hg38/hg38.fa.fai"
 for f in hg38-blacklist.v2.bed cytoband_b38.bed; do cp "$RES/$f" "$OUT/small/$f"; chmod 644 "$OUT/small/$f"; done
 for f in "$RES"/exclusion/*; do link "$f" "$OUT/small/exclusion/$(basename "$f")"; done
 for c in $(seq 1 22); do
-  for f in "$RES"/sites_hg38/chr$c.sites.*; do link "$f" "$OUT/small/sites_hg38/$(basename "$f")"; done
+  for f in "$RES"/sites_hg38/chr$c.sites.tsv.gz*; do link "$f" "$OUT/small/sites_hg38/$(basename "$f")"; done
+  # the sites VCF is rewritten without its ##bcftools_* history lines, which record local paths of the build machine
+  v=$OUT/small/sites_hg38/chr$c.sites.vcf.gz
+  gzip -dc "$RES/sites_hg38/chr$c.sites.vcf.gz" | grep -v -E '^##(bcftools|tabix)_' | bgzip -c > "$v"
+  chmod 644 "$v"; bcftools index -f "$v"
   link "$RES/maps_b38/chr$c.b38.gmap.gz" "$OUT/small/maps_b38/chr$c.b38.gmap.gz"
   case $c in [1-4]) part=a ;; [5-9]) part=b ;; 1[0-5]) part=c ;; *) part=d ;; esac   # four ~3 GB image layers
   for f in "$GREF"/1kGP.chr${c}_*.bin "$GREF/chunks.chr$c.txt" "$GREF/.done.chr$c"; do
