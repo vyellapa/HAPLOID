@@ -6,15 +6,23 @@ Sources (copied into resources/exclusion/ with their provenance):
                                       length: reads cannot span them, so alleles inside are unreliable)
   (deliberately NOT used: GRCh38_lowmappabilityall, GRCh38_alldifficultregions - too broad, 220 / 572 Mb)
   GIAB HG002 SV v0.6                  vdj_loci.GRCh38.bed             IG / TCR loci (somatic V(D)J rearrangement)
-  Illumina DRAGEN 4.4                 human.hg38.excl.bed             telomeres, centromeres, heterochromatin, PAR
+  UCSC hg38 database                  gap.txt.gz, centromeres.txt.gz  telomeres, heterochromatin (gap table) and centromeres
+                                      (per chromosome, first to last modelled centromere piece) -> ucsc_gap_centromeres_hg38.bed
+                                      (replaces DRAGEN 4.4 human.hg38.excl.bed: same regions on chr1-22, public)
 Outputs:
-  resources/exclusion/sites_hg38.bed.gz  merged intervals for allele sites: segdups + tandem repeats >= 101 bp + VDJ + DRAGEN,
+  resources/exclusion/sites_hg38.bed.gz  merged intervals for allele sites: segdups + tandem repeats >= 101 bp + VDJ + UCSC gap,
                                          each +/- SITE_PAD (50 bp: a read starting just outside can still mismap)
-  resources/exclusion/bins_500kb.tsv     500 kb bins whose coverage by segdups + VDJ + DRAGEN is >= BIN_FRAC (no padding:
+  resources/exclusion/bins_500kb.tsv     500 kb bins whose coverage by segdups + VDJ + UCSC gap is >= BIN_FRAC (no padding:
                                          neighbouring bins are depth-corrected and mappability-filtered on their own) (tandem repeats are short and scattered, and
                                          mappability is handled per bin by ichorCNA's map >= 0.9 filter, so neither is used)
+  resources/exclusion/public_bin_mask_500kb.tsv  depth/allele bin mask from public data, used by allelic_lib.bin_mask() only when no
+                                         healthy-control mask is given: bins touched by an hg38 alternate-haplotype locus (UCSC
+                                         altLocations.txt.gz; reads can map to the _alt contig with MAPQ 0, so depth is biased) and
+                                         the 1% most GC-rich autosomal bins (ichorCNA gc_hg38_500kb.wig; GC bias varies between
+                                         libraries and per-sample correction leaves residue there)
   resources/exclusion/review_*.tsv       per-source size, panel sites lost, and every masked bin block (printed)
-Usage: build_exclusion.py <giab_dir>     (GIAB GRCh38 genome stratification BEDs)
+Usage: build_exclusion.py <dir>     (<dir>/NIST/...: GIAB BEDs as below; <dir>/ucsc/: gap.txt.gz, centromeres.txt.gz, altLocations.txt.gz from
+       hgdownload.soe.ucsc.edu/goldenPath/hg38/database/; <dir>/ichorCNA/gc_hg38_500kb.wig from the ichorCNA repository)
 """
 import gzip, os, shutil, sys
 from pathlib import Path
@@ -28,7 +36,11 @@ G = Path(sys.argv[1]).expanduser()
 SRC = {"segdups": G / "NIST/giab_strat/GRCh38_segdups.bed.gz",
        "tandem_repeats_ge101bp": G / "NIST/giab_strat/GRCh38_AllTandemRepeats_ge101bp_slop5.bed.gz",
        "vdj": G / "NIST/v06_shortread/vdj_loci.GRCh38.bed",
-       "dragen": G / "dragen44/tricky_regions/human.hg38.excl.bed"}
+       "ucsc_gap": G / "ucsc/gap.txt.gz"}
+UCSC_CEN = G / "ucsc/centromeres.txt.gz"
+UCSC_ALT = G / "ucsc/altLocations.txt.gz"
+ICHOR_GC = G / "ichorCNA/gc_hg38_500kb.wig"
+GC_TOP = 0.01
 
 
 def read(f):
@@ -52,15 +64,28 @@ def merge(d):
     return pd.DataFrame(out, columns=["chrom", "start", "end"]).astype({"start": np.int64, "end": np.int64})
 
 
-R = {k: read(f) for k, f in SRC.items()}
+def read_ucsc():
+    """Telomeres + heterochromatin from the gap table; one interval per chromosome spanning its centromere model."""
+    g = pd.read_csv(SRC["ucsc_gap"], sep="\t", header=None, usecols=[1, 2, 3, 7], names=["chrom", "start", "end", "type"])
+    g = g[g.chrom.isin(AUTO) & g.type.isin(["telomere", "heterochromatin"])]
+    c = pd.read_csv(UCSC_CEN, sep="\t", header=None, usecols=[1, 2, 3], names=["chrom", "start", "end"])
+    c = c[c.chrom.isin(AUTO)].groupby("chrom").agg(start=("start", "min"), end=("end", "max")).reset_index()
+    d = pd.concat([g, c.assign(type="centromere")]).sort_values(["chrom", "start"])
+    d.to_csv(OUT / "ucsc_gap_centromeres_hg38.bed", sep="\t", header=False, index=False)
+    return d[["chrom", "start", "end"]].astype({"start": np.int64, "end": np.int64})
+
+
+R = {k: read(f) for k, f in SRC.items() if k != "ucsc_gap"}
+R["ucsc_gap"] = read_ucsc()
 for k, f in SRC.items():
-    shutil.copy(f, OUT / f.name)
+    if k != "ucsc_gap":
+        shutil.copy(f, OUT / f.name)
 allsrc = pd.concat(R.values())
 sites = merge(allsrc.assign(start=(allsrc.start - SITE_PAD).clip(lower=0), end=allsrc.end + SITE_PAD))
 sites.to_csv(OUT / "sites_hg38.bed.gz", sep="\t", header=False, index=False, compression="gzip")
 
 fai = pd.read_csv(Path(os.environ.get("REF", ROOT / "resources/hg38.fa")).with_suffix(".fa.fai"), sep="\t", header=None, index_col=0)[1]
-binsrc = merge(pd.concat([R["segdups"], R["vdj"], R["dragen"]]))
+binsrc = merge(pd.concat([R["segdups"], R["vdj"], R["ucsc_gap"]]))
 rows = []
 for c in AUTO:
     n = int(fai[c]) // BIN + 1
@@ -75,6 +100,24 @@ for c in AUTO:
     rows += [(c, b * BIN + 1, (b + 1) * BIN, round(cov[b] / BIN, 3), "covered" if hit[b] else "pad") for b in np.where(pad)[0]]
 B = pd.DataFrame(rows, columns=["chrom", "start", "end", "frac_excluded", "reason"])
 B.to_csv(OUT / "bins_500kb.tsv", sep="\t", index=False)
+alt = pd.read_csv(UCSC_ALT, sep="\t", header=None, usecols=[1, 2, 3], names=["chrom", "start", "end"])
+alt = alt[alt.chrom.isin(AUTO)]
+ab = sorted({(c, b) for c, s, e in alt.itertuples(index=False) for b in range(s // BIN, (e - 1) // BIN + 1)},
+            key=lambda x: (int(x[0][3:]), x[1]))
+gc, chrom = [], None
+for line in ICHOR_GC.read_text().splitlines():                # fixedStep wig, one value per 500 kb bin
+    if line.startswith("fixedStep"):
+        kv = dict(x.split("=") for x in line.split()[1:]); chrom = "chr" + kv["chrom"].replace("chr", "")
+        pos, step = int(kv["start"]), int(kv["step"])
+    else:
+        gc.append((chrom, pos, float(line))); pos += step
+gc = pd.DataFrame(gc, columns=["chrom", "start", "gc"]); gc = gc[gc.chrom.isin(AUTO) & (gc.gc > 0)]
+top = gc[gc.gc >= gc.gc.quantile(1 - GC_TOP)]
+pm = pd.DataFrame([(c, b * BIN + 1, (b + 1) * BIN, "ucsc_alt_locus") for c, b in ab]
+                  + [(c, s, s + BIN - 1, "gc_top1pct") for c, s in zip(top.chrom, top.start) if (c, (s - 1) // BIN) not in set(ab)],
+                  columns=["chrom", "start", "end", "reason"])
+pm.assign(o=pm.chrom.str[3:].astype(int)).sort_values(["o", "start"]).drop(columns="o") \
+    .to_csv(OUT / "public_bin_mask_500kb.tsv", sep="\t", index=False)
 # ---- review: per-source size and 1kGP panel sites removed; every masked bin block with its composition ----
 panel = pd.concat([pd.read_csv(ROOT / f"resources/sites_hg38/{c}.sites.tsv.gz", sep="\t", header=None, usecols=[0, 1],
                                names=["chrom", "pos"]) for c in AUTO])
@@ -101,7 +144,7 @@ S_ = pd.DataFrame(stats); S_["pct_panel"] = (100 * S_.panel_sites_removed / len(
 S_.to_csv(OUT / "review_sources.tsv", sep="\t", index=False)
 print(f"1kGP panel sites (autosomes): {len(panel):,}"); print(S_.to_string(index=False))
 B["blk"] = ((B.chrom != B.chrom.shift()) | (B.start != B.end.shift() + 1)).cumsum()
-comp = {k: R[k] for k in ["segdups", "vdj", "dragen"]}
+comp = {k: R[k] for k in ["segdups", "vdj", "ucsc_gap"]}
 
 
 def composition(c, a, b):
@@ -122,7 +165,12 @@ blocks.to_csv(OUT / "review_bin_blocks.tsv", sep="\t", index=False)
 pd.set_option("display.width", 200); pd.set_option("display.max_colwidth", 80)
 print(f"\nmasked depth-bin blocks ({len(blocks)}):")
 print(blocks.assign(start=(blocks.start / 1e6).round(2), end=(blocks.end / 1e6).round(2)).to_string(index=False))
-(OUT / "SOURCES.txt").write_text("\n".join(f"{k}\t{f}" for k, f in SRC.items()) + "\n")
+ORIGIN = {"segdups": "GIAB GRCh38 genome stratifications (NIST)", "tandem_repeats_ge101bp": "GIAB GRCh38 genome stratifications (NIST)",
+          "vdj": "GIAB HG002 SV v0.6 (NIST)", "ucsc_gap": "UCSC hg38 database", "ucsc_centromeres": "UCSC hg38 database", "ucsc_alt": "UCSC hg38 database", "ichor_gc": "ichorCNA inst/extdata"}
+(OUT / "SOURCES.txt").write_text("".join(f"{k}\t{f.name}\t{ORIGIN[k]}\n"     # file names, not local paths
+                                         for k, f in {**SRC, "ucsc_centromeres": UCSC_CEN, "ucsc_alt": UCSC_ALT, "ichor_gc": ICHOR_GC}.items()))
 print(f"sites: {len(sites)} merged intervals, {(sites.end - sites.start).sum() / 1e6:.0f} Mb (autosomes)")
+print(f"public bin mask (used without a healthy-control mask): {len(pm)} bins = {len(ab)} alt-locus + "
+      f"{int((pm.reason == 'gc_top1pct').sum())} top-1% GC (GC >= {top.gc.min():.3f})")
 print(f"bins: {int((B.reason == 'covered').sum())} bins >= {BIN_FRAC:.0%} excluded + {int((B.reason == 'pad').sum())} padding bins "
       f"({len(B) * BIN / 1e6:.0f} Mb)")

@@ -9,7 +9,7 @@ S=$1; CHR=$2; JOBS=${3:-4}
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 . "$ROOT/scripts/glimpse_env.sh"
 BAM=$ROOT/work/bam/$S.auto.md.bam
-REF=$ROOT/work/glimpse/ref
+REF=${HAPLOID_GLIMPSE_REF:-$ROOT/work/glimpse/ref}
 OUT=$ROOT/work/glimpse/$S; mkdir -p "$OUT/chunks"
 export ROOT BAM REF OUT S CHR
 

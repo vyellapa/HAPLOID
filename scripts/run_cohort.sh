@@ -7,13 +7,16 @@
 #      the second pass: cohort_bias.py (residual CSF-specific depth bias) -> refit_downstream.sh -> cohort_table.py
 # Usage: run_cohort.sh [bam ...]          (no arguments: every $BAM_DIR/*_500k/*.bam)
 # env: BAM_DIR, REF, JOBS (15), CORES (4), PREP_JOBS (16), PY (python3), KEEP_BAM (0), GLIMPSE_RUNNER / GLIMPSE_BIN,
-#      MODES (joint-fit segment modes, "arms cbs_union ascat"), ICHOR_* (run_sample.sh), ALLOW_FRAGMENT_DEPTH (0)
+#      MODES (joint-fit segment modes, "arms cbs_union ascat"), ICHOR_* (run_sample.sh), ALLOW_FRAGMENT_DEPTH (0),
+#      HAPLOID_GLIMPSE_REF (prepared GLIMPSE2 reference; default work/glimpse/ref), HAPLOID_CONTROLS (control mask dir)
 set -euo pipefail
 ROOT=$(cd "$(dirname "$0")/.." && pwd); SC=$ROOT/scripts
 BAM_DIR=${BAM_DIR:?set BAM_DIR (folder of <sample>_500k/<sample>.bam)}
 export REF=${REF:-$ROOT/resources/hg38.fa}
 export CORES=${CORES:-4} PY=${PY:-python3} KEEP_BAM=${KEEP_BAM:-0} HAPLOID_RES=${HAPLOID_RES:-$ROOT/resources}
 JOBS=${JOBS:-15}; PREP_JOBS=${PREP_JOBS:-16}
+GREF=${HAPLOID_GLIMPSE_REF:-$ROOT/work/glimpse/ref}   # prepared GLIMPSE2 reference (built in the container)
+CTRL=${HAPLOID_CONTROLS:-$ROOT/resources}
 . "$SC/glimpse_env.sh"
 LOG=$ROOT/logs; DONE=$ROOT/work/done; mkdir -p "$LOG/samples" "$DONE"
 ts() { date '+%F %T'; }
@@ -30,15 +33,18 @@ for f in hg38-blacklist.v2.bed cytoband_b38.bed; do [ -s "$HAPLOID_RES/$f" ] || 
 for f in resources/exclusion/sites_hg38.bed.gz resources/exclusion/bins_500kb.tsv; do
   [ -s "$ROOT/$f" ] || die "$f missing (see resources/README.md)"
 done
-[ -s "$ROOT/resources/control_bin_mask_500kb.tsv" ] \
-  || echo "  note: resources/control_bin_mask_500kb.tsv missing - no healthy-control bin mask (control_bin_mask.py builds it)"
+if [ -s "$CTRL/control_bin_mask_500kb.tsv" ]; then echo "  bin mask: healthy controls ($CTRL/control_bin_mask_500kb.tsv)"
+elif [ "${HAPLOID_PUBLIC_MASK:-1}" != 0 ] && [ -s "$ROOT/resources/exclusion/public_bin_mask_500kb.tsv" ]; then
+  echo "  bin mask: public (hg38 alt-haplotype loci + top-1% GC bins; resources/exclusion/public_bin_mask_500kb.tsv)"
+else echo "  WARNING: no bin mask - bias-prone bins (MHC and other alt-haplotype regions) enter the depth fit"; fi
 [ -s "$ROOT/resources/cohort_bias_500kb.tsv" ] && echo "  cohort bias present: second pass (resources/cohort_bias_500kb.tsv applied)"
 [ -s "$ROOT/work/depth/ichor_pon_hg38_500kb.tsv" ] \
   || echo "  note: work/depth/ichor_pon_hg38_500kb.tsv missing - only needed when a sample has no ichorCNA correctedDepth"
+ref_todo=$(for c in $(seq 1 22); do [ -e "$GREF/.done.chr$c" ] || echo "$c"; done)
 for c in $(seq 1 22); do
-  for f in panel_hg38/1kGP_phase3.chr$c.hg38.biSNP_maf0.01.bcf sites_hg38/chr$c.sites.vcf.gz sites_hg38/chr$c.sites.tsv.gz \
-           maps_b38/chr$c.b38.gmap.gz; do
-    [ -s "$ROOT/resources/$f" ] || die "resources/$f missing"
+  for f in sites_hg38/chr$c.sites.vcf.gz sites_hg38/chr$c.sites.tsv.gz maps_b38/chr$c.b38.gmap.gz \
+           $(grep -qx "$c" <<< "$ref_todo" && echo panel_hg38/1kGP_phase3.chr$c.hg38.biSNP_maf0.01.bcf); do
+    [ -s "$ROOT/resources/$f" ] || die "resources/$f missing"     # the panel only while its GLIMPSE2 reference is unprepared
   done
 done
 ghelp=$(glimpse GLIMPSE2_phase --help 2>&1 || true)
@@ -58,17 +64,17 @@ done
   || die "$n_noichor samples lack ichorCNA correctedDepth (their depth would come from a different method); fix the paths or set ALLOW_FRAGMENT_DEPTH=1"
 
 # ---- 2. one-time shared prep --------------------------------------------------------------------------------
-for c in $(seq 1 22); do
+for c in $ref_todo; do
   p=$ROOT/resources/panel_hg38/1kGP_phase3.chr$c.hg38.biSNP_maf0.01.bcf
   bcftools view -h "$p" | grep '^##INFO=<ID=AC,' > /dev/null || echo "$c"
 done | xargs -r -P 8 -I{} "$SC/panel_add_acan.sh" {}
 
-todo=$(for c in $(seq 1 22); do [ -e "$ROOT/work/glimpse/ref/.done.chr$c" ] || echo "$c"; done)
+todo=$ref_todo
 if [ -n "$todo" ]; then
   echo "[$(ts)] GLIMPSE2 reference prep for chromosomes: $(echo $todo)"
   echo "$todo" | xargs -P "$PREP_JOBS" -I{} sh -c \
     '"$0" {} 4 > "$1/glimpse_prep.chr{}.log" 2>&1 && touch "$2/.done.chr{}"' \
-    "$SC/glimpse_prep_reference.sh" "$LOG" "$ROOT/work/glimpse/ref" \
+    "$SC/glimpse_prep_reference.sh" "$LOG" "$GREF" \
     || die "reference prep failed (see $LOG/glimpse_prep.chr*.log)"
 fi
 
@@ -99,7 +105,7 @@ for b in "${BAMS[@]}"; do
 done
 echo "[$(ts)] finished: $n_ok done, $n_fail failed of ${#BAMS[@]}"
 (cd "$SC" && "$PY" clonal_tf.py > /dev/null && "$PY" cohort_table.py) || echo "  clonal_tf.py / cohort_table.py failed"
-if [ ! -s "$ROOT/resources/cohort_bias_500kb.tsv" ]; then cat << NEXT
+if [ ! -s "$ROOT/resources/cohort_bias_500kb.tsv" ] && [ -z "${HAPLOID_NO_NEXT:-}" ]; then cat << NEXT
 Next (second pass, ~minutes per sample, no re-phasing):
   1. $PY $SC/cohort_bias.py        # residual bias from the tumor-negative samples; REVIEW the printed blocks + work/cohort_bias.png
   2. ls $DONE/*.cleanup | xargs -n1 basename | sed 's/.cleanup\$//' > $LOG/cohort_samples.txt

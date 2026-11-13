@@ -1,0 +1,24 @@
+# HAPLOID with its public reference data built in: hg38, the prepared GLIMPSE2 1000 Genomes reference, panel sites,
+# genetic maps and region exclusions. One mount (/out) holds work/, logs/ and final/.
+# Build context: container/bundle_resources.sh output.   docker build -f container/Dockerfile.full <bundle dir>
+ARG BASE=vyellapa/haploid:latest
+FROM ${BASE}
+
+USER root
+COPY --chmod=644 hg38/ /opt/haploid/resources/
+COPY glimpse_ref_a/ /opt/haploid/resources/glimpse_ref/
+COPY glimpse_ref_b/ /opt/haploid/resources/glimpse_ref/
+COPY glimpse_ref_c/ /opt/haploid/resources/glimpse_ref/
+COPY glimpse_ref_d/ /opt/haploid/resources/glimpse_ref/
+COPY small/ /opt/haploid/resources/
+RUN rm -rf /opt/haploid/work /opt/haploid/logs \
+    && mkdir -p /out && chmod 777 /out \
+    && ln -s /out/work /opt/haploid/work && ln -s /out/logs /opt/haploid/logs
+
+ENV REF=/opt/haploid/resources/hg38.fa \
+    HAPLOID_GLIMPSE_REF=/opt/haploid/resources/glimpse_ref \
+    HAPLOID_FINAL=/out/final
+
+USER $MAMBA_USER
+WORKDIR /opt/haploid
+CMD ["--help"]

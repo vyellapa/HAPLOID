@@ -76,6 +76,35 @@ in one non-diploid state with flat depth - usually a mixture of two individuals'
 
 ### Container
 
+### Quick start: BAM in, results out
+
+`vyellapa/haploid:full` has the public reference data built in (hg38, the prepared GLIMPSE2 1000 Genomes reference,
+panel sites, genetic maps, region exclusions; ~15 GB) and runs everything from an indexed hg38 BAM, including
+ichorCNA when you have no ichorCNA results. One folder is mounted at `/out`.
+
+```bash
+mkdir -p results
+docker run --rm --init --platform linux/amd64 --user "$(id -u):$(id -g)" \
+  -v "$PWD/results:/out" -v /path/to/bams:/data:ro -e CORES=8 \
+  vyellapa/haploid:full run --bam /data/S1.bam                          # ichorCNA run here
+#                        run --bam /data/S1.bam --ichor /data/S1_ichor/  # existing ichorCNA results (500 kb bins)
+#                        run --sheet /data/samples.tsv                   # many: columns sample, bam[, ichor]
+
+# Apptainer:
+apptainer pull haploid_full.sif docker://vyellapa/haploid:full
+apptainer run --bind "$PWD/results:/out" --bind /path/to/bams:/data haploid_full.sif run --bam /data/S1.bam
+```
+
+Results: `results/final/summary.tsv`, `events.tsv`, `plots/`, `report.pdf` (a summary table, then one page per sample);
+everything else (resumable) under `results/work/` and `results/logs/`. `--ichor` takes a folder with
+`*correctedDepth.txt`, `*params.txt`, `*seg.txt` (with or without `_Y`; several samples' files are matched by sample
+name). Those are used only at 500 kb bins - every later step is built on them - otherwise ichorCNA is run here;
+`ichorCNA_source` in the summary says which. The image holds no data derived from samples. Bias-prone depth bins are masked with a public mask (hg38
+alternate-haplotype loci + the 1% most GC-rich bins); a lab's own healthy-control bin mask (`control_bin_mask.py`)
+replaces it when mounted and named with `-e HAPLOID_CONTROLS=/path/in/container`.
+
+### Base image
+
 Use [`vyellapa/haploid:latest`](https://hub.docker.com/r/vyellapa/haploid) from Docker Hub
 (`linux/amd64`). The image includes Python, R/ASCAT, DNAcopy, samtools/bcftools, liftOver
 and GLIMPSE2. Its `cohort` and `sample` commands run shared reference preparation,

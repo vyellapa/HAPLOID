@@ -7,11 +7,30 @@ the container.
 
 Docker Hub image: [`vyellapa/haploid:latest`](https://hub.docker.com/r/vyellapa/haploid).
 
-Reference data and sequencing data are supplied as mounts. The image does not
-include BAMs, reference genomes, reference panels, existing results, or credentials.
-ichorCNA results can be supplied alongside the BAMs; this image does not run
-ichorCNA. The fragment-count alternative requires a prepared panel of normals
-(see below).
+Two images:
+
+- `vyellapa/haploid:latest` - code and tools (including ichorCNA, pinned commit, with its panels of normals removed).
+  Reference data and sequencing data are supplied as mounts, as described below.
+- `vyellapa/haploid:full` - the same plus the public reference data (~15 GB): hg38, the prepared GLIMPSE2 1000
+  Genomes reference, panel sites, genetic maps and region exclusions. `haploid run` goes from a BAM to final
+  results with one `/out` mount; see the main README's quick start. It holds nothing derived from samples (no
+  healthy-control mask, cohort bias, constraints or panel of normals).
+
+Neither image includes BAMs, existing results or credentials. The fragment-count alternative to ichorCNA depth
+requires a prepared panel of normals (see below).
+
+## Build the full image
+
+From a machine with the prepared resources (`resources/`, a complete GLIMPSE2 reference with its `.done.chr*`
+markers, hg38.fa + .fai) and the base image built:
+
+```bash
+container/bundle_resources.sh resources/ work/glimpse/ref /path/to/hg38.fa /tmp/haploid_bundle   # hard links
+docker build --platform linux/amd64 -f container/Dockerfile.full \
+  --build-arg BASE=vyellapa/haploid:latest -t vyellapa/haploid:full /tmp/haploid_bundle
+```
+
+`bundle_resources.sh` copies an allow-list only and refuses an exclusion set built with the DRAGEN file.
 
 ## Build and publish
 

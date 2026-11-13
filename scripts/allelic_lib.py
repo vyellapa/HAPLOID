@@ -11,11 +11,12 @@ import numpy as np, pandas as pd
 ROOT = Path(__file__).resolve().parents[1]
 # env overrides for running elsewhere (HPC): HAPLOID_RES = dir with hg38-blacklist.v2.bed + cytoband_b38.bed;
 # ICHOR_PARAMS / ICHOR_SEG = ichorCNA file paths, "{s}" is replaced by the sample name
+# HAPLOID_CONTROLS = dir with control_bin_mask_500kb.tsv / pipeline_bias_500kb.tsv (default resources/)
 RES = Path(os.environ.get("HAPLOID_RES", ROOT / "resources"))
 ICHOR_PARAMS = os.environ.get("ICHOR_PARAMS", str(ROOT / "ichor/{s}_Y.params.txt"))
 ICHOR_SEG = os.environ.get("ICHOR_SEG", str(ROOT / "ichor/{s}_Y.seg.txt"))
 CEN_PAD = 2_000_000   # exclude +/- 2 Mb around each centromere (acen bands)
-EXCL = ROOT / "resources/exclusion"   # build_exclusion.py: GIAB segdups / tandem repeats >= 101 bp / VDJ + DRAGEN exclusions, +/- 50 bp
+EXCL = ROOT / "resources/exclusion"   # build_exclusion.py: GIAB segdups / tandem repeats >= 101 bp / VDJ + UCSC gap exclusions, +/- 50 bp
 MIN_SITES = 300       # bins with fewer informative sites are dropped
 
 # reference palette (dataviz skill), light mode
@@ -51,14 +52,21 @@ def bq(f, fmt):
     return pd.read_csv(p.stdout, sep="\t", header=None, na_values=".")
 
 
+CONTROLS = Path(os.environ.get("HAPLOID_CONTROLS", ROOT / "resources"))   # control_bin_mask / pipeline_bias (control_bin_mask.py)
+
+
 def bin_mask():
-    """500 kb bins that misbehave in healthy controls (control_bin_mask.py); empty if the file is absent."""
-    f = ROOT / "resources/control_bin_mask_500kb.tsv"
+    """500 kb bins that misbehave in healthy controls (control_bin_mask.py). Without that file, the public mask
+    (exclusion/public_bin_mask_500kb.tsv, build_exclusion.py: hg38 alternate-haplotype loci + the 1% most GC-rich bins),
+    unless HAPLOID_PUBLIC_MASK=0. Empty if neither applies."""
+    f = CONTROLS / "control_bin_mask_500kb.tsv"
+    if not f.exists() and os.environ.get("HAPLOID_PUBLIC_MASK", "1") != "0":
+        f = EXCL / "public_bin_mask_500kb.tsv"
     return pd.read_csv(f, sep="\t") if f.exists() else pd.DataFrame(columns=["chrom", "start", "end"])
 
 
 def exclusion_bins():
-    """500 kb bins (chrom, start) excluded for depth: >= 50% segdup/VDJ/DRAGEN-excluded, no padding (build_exclusion.py)."""
+    """500 kb bins (chrom, start) excluded for depth: >= 50% segdup/VDJ/UCSC-gap-excluded, no padding (build_exclusion.py)."""
     f = EXCL / "bins_500kb.tsv"
     return pd.read_csv(f, sep="\t") if f.exists() else pd.DataFrame(columns=["chrom", "start", "end"])
 
@@ -68,7 +76,7 @@ _SITE_EXCL, _MASK = None, {}
 
 def mask_intervals(c):
     """Merged, sorted (n, 2) intervals masked for allele sites on chromosome c: ENCODE blacklist, heterochromatin
-    cytobands, centromeres +/- CEN_PAD, control bin mask, and GIAB segdups / tandem repeats >= 101 bp / VDJ + DRAGEN exclusions, +/- 50 bp
+    cytobands, centromeres +/- CEN_PAD, control bin mask, and GIAB segdups / tandem repeats >= 101 bp / VDJ + UCSC gap exclusions, +/- 50 bp
     (mismapping -> false hets or false allelic loss)."""
     global _SITE_EXCL
     if c in _MASK:

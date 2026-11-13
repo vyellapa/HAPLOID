@@ -8,7 +8,7 @@ ROOT=$(cd "$(dirname "$0")/.." && pwd)
 . "$ROOT/scripts/glimpse_env.sh"
 PANEL=$ROOT/resources/panel_hg38/1kGP_phase3.chr$CHR.hg38.biSNP_maf0.01.bcf
 MAP=$ROOT/resources/maps_b38/chr$CHR.b38.gmap.gz
-OUT=$ROOT/work/glimpse/ref; mkdir -p "$OUT"
+OUT=${HAPLOID_GLIMPSE_REF:-$ROOT/work/glimpse/ref}; mkdir -p "$OUT"
 
 glimpse GLIMPSE2_chunk --input "$PANEL" --region "chr$CHR" --map "$MAP" --sequential \
   --threads "$THREADS" --output "$OUT/chunks.chr$CHR.txt" --log "$OUT/chunks.chr$CHR.log" > /dev/null

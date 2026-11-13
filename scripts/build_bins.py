@@ -11,7 +11,7 @@ Depth (column `logR`, source in `logR_source`):
   cohort    : when resources/cohort_bias_500kb.tsv exists (cohort_bias.py, built from this cohort's tumor-negative samples),
               its residual per-bin bias is subtracted too and its flagged bins dropped; `logR_precohort` keeps the value
               before that step (cohort_bias.py reads it, so rebuilding the table does not compound).
-Bins within +/- 2 Mb of a centromere, bins in resources/exclusion/bins_500kb.tsv (GIAB segdups / VDJ + DRAGEN
+Bins within +/- 2 Mb of a centromere, bins in resources/exclusion/bins_500kb.tsv (GIAB segdups / VDJ + UCSC gap
 exclusions covering >= 50% of the bin, no padding; build_exclusion.py), and bins in resources/control_bin_mask_500kb.tsv (built by control_bin_mask.py from
 bwa-aligned healthy controls: e.g. MHC and other alt-contig regions where reads get MAPQ 0), are dropped.
 BAF per bin = H1 read fraction over GLIMPSE2-phased hets (phase orientation is arbitrary between switch errors,
@@ -22,7 +22,7 @@ Usage: build_bins.py [samples...]   Output: work/cnv/<sample>.bins.tsv
 import os, sys
 from pathlib import Path
 import numpy as np, pandas as pd
-from allelic_lib import CEN_PAD, RES, bin_mask, exclusion_bins
+from allelic_lib import CEN_PAD, CONTROLS, RES, bin_mask, exclusion_bins
 
 ROOT = Path(__file__).resolve().parents[1]
 SAMPLES = sys.argv[1:] or sys.exit("usage: build_bins.py <samples...>")
@@ -42,7 +42,7 @@ def depth(s):
         d["bin"] = (d.start - 1) // BIN
         d = d.rename(columns={"log2_TNratio_corrected": "logR"})[["chrom", "bin", "start", "logR"]]
         src = "ichorCNA"
-        bf = ROOT / "resources/pipeline_bias_500kb.tsv"
+        bf = CONTROLS / "pipeline_bias_500kb.tsv"
         if os.environ.get("HAPLOID_CONTROL_BIAS", "0") == "1" and bf.exists():
             d = d.merge(pd.read_csv(bf, sep="\t")[["chrom", "start", "bias"]], on=["chrom", "start"], how="left")
             d["logR"] = d.logR - d.bias.fillna(0)

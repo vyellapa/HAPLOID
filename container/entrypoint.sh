@@ -6,12 +6,23 @@ SC=$ROOT/scripts
 export REF=${REF:-$ROOT/resources/hg38.fa} HAPLOID_RES=${HAPLOID_RES:-$ROOT/resources}
 export GLIMPSE_RUNNER=${GLIMPSE_RUNNER:-native} PY=${PY:-python3}
 export BAM_DIR=${BAM_DIR:-/data/bams} CORES=${CORES:-4} JOBS=${JOBS:-1} PREP_JOBS=${PREP_JOBS:-1}
+for d in work logs; do                    # full image: work/ and logs/ link into the /out mount
+  if [ -L "$ROOT/$d" ] && [ ! -e "$ROOT/$d" ]; then mkdir -p "$(readlink "$ROOT/$d")" 2>/dev/null \
+    || { echo "ERROR: mount a writable folder at /out (e.g. -v \"$PWD/results:/out\")" >&2; exit 1; }; fi
+done
 cd "$ROOT"
 
 usage() {
   cat <<'HELP'
 Usage: haploid COMMAND [arguments...]
 
+  run --bam BAM [--sample NAME] [--ichor DIR] [--bam ...]
+  run --sheet SAMPLES.tsv
+                     Whole analysis: ichorCNA (unless --ichor gives existing 500 kb
+                     results), phasing, joint fit, ploidy check, plots and a PDF.
+                     Sheet: tab-separated, header sample, bam[, ichor]. Results in
+                     $HAPLOID_FINAL (full image: /out/final). Optional healthy-control
+                     mask: mount it and set HAPLOID_CONTROLS to that folder.
   cohort [BAM ...]    Prepare shared references, run samples, and build reports.
                      Without arguments, use $BAM_DIR/*_500k/*.bam.
   sample BAM         Run one BAM through the same preparation and full pipeline.
@@ -84,13 +95,14 @@ case "$command" in
     ;;
   constrain) exec bash "$SC/refit_with.sh" "$@" ;;
   resolve) exec bash "$SC/resolve_discordant.sh" "$@" ;;
+  run) exec bash "$SC/run_bam.sh" "$@" ;;
   plot) exec "$PY" "$SC/plot_cna_compare.py" "$@" ;;
   check)
-    for tool in samtools bcftools bgzip tabix liftOver Rscript "$PY"; do
+    for tool in samtools bcftools bgzip tabix liftOver readCounter runIchorCNA.R Rscript "$PY"; do
       command -v "$tool" >/dev/null || { echo "ERROR: $tool missing" >&2; exit 1; }
     done
     "$PY" -c 'import numpy, pandas, matplotlib, pysam; print("Python packages: OK")'
-    Rscript -e 'suppressMessages({library(ASCAT); library(DNAcopy)}); stopifnot(packageVersion("ASCAT") >= "3.1.0"); cat("R packages: OK\n")'
+    Rscript -e 'suppressMessages({library(ASCAT); library(DNAcopy); library(ichorCNA); library(optparse)}); stopifnot(packageVersion("ASCAT") >= "3.1.0"); stopifnot(file.exists(system.file("extdata", "gc_hg38_500kb.wig", package = "ichorCNA"))); cat("R packages: OK\n")'
     . "$SC/glimpse_env.sh"
     for tool in GLIMPSE2_chunk GLIMPSE2_split_reference GLIMPSE2_phase GLIMPSE2_ligate; do
       help=$(glimpse "$tool" --help 2>&1 || true)
