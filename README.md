@@ -205,7 +205,7 @@ Each finished step leaves `work/done/<sample>.<step>` (its runtime in seconds) a
 
 ### Refitting with known values
 
-If tissue purity, ploidy or an unchanged chromosome is known:
+To refit using predefined purity, ploidy or a chromosome at a diploid state:
 
 ```bash
 bash scripts/refit_with.sh <sample> purity=0.4-0.6 ploidy=2.2-2.7     # ranges, or single values (+/- 0.05 / 0.25)
