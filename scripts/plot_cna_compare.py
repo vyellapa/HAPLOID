@@ -22,7 +22,7 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 from matplotlib.patches import Patch
 from matplotlib.lines import Line2D
-from allelic_lib import RES, ICHOR_PARAMS, ICHOR_SEG, LINE, BW_DOTS, BW_SEP, style_bw
+from allelic_lib import RES, ICHOR_PARAMS, ICHOR_SEG, LINE, BW_DOTS, BW_SEP, style_bw, effective
 
 ROOT = Path(__file__).resolve().parents[1]
 SAMPLES = sys.argv[1:] or sys.exit("usage: plot_cna_compare.py <samples...>")
@@ -61,18 +61,6 @@ def ichor(s):
     seg["chrom"] = "chr" + seg.chrom.astype(str).str.replace("chr", "")
     kv = dict(l.split(":\t", 1) for l in p.read_text().splitlines() if ":\t" in l)
     return seg, float(kv["Tumor Fraction"]), float(kv["Ploidy"])
-
-
-def effective(seg):
-    """Effective total and minor copy number per segment (subclonal mixes weighted by their cell fraction)."""
-    tot, mnr = [], []
-    for r in seg.itertuples():
-        a, b = r.nA, r.nB
-        if isinstance(r.sub_to, str) and r.sub_to:
-            ab, f = r.sub_to.split("@"); a2, b2 = map(int, ab.split(":")); f = float(f)
-            a, b = a + f * (a2 - a), b + f * (b2 - b)
-        tot.append(a + b); mnr.append(min(a, b))
-    return np.array(tot), np.array(mnr)
 
 
 def call_type(r, tot, mnr, base_tot):

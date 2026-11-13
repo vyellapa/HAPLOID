@@ -58,7 +58,7 @@ docker run --rm --init --platform linux/amd64 --user "$(id -u):$(id -g)" \
 | File | Content |
 |---|---|
 | `final/summary.tsv` | one row per sample: `tumor_detected`, `tumor_llr`, `TF` with its 95% interval (`TF_lo`, `TF_hi`, `TF_uncertain`), `ploidy`, `ctDNA_fraction` (+ `ctDNA_lo`, `ctDNA_hi`), `loh_mb`, `cnloh_mb`, event counts, the depth HMM's estimate (`ichor_TF`, `ichor_ploidy`, `ichorCNA_source`), QC (`dup_rate`, `unique_reads_M`, `baf_bins`, `allele_qc`, `fit_flag`) |
-| `final/segments.tsv` | every segment of the reported fit: logR, allelic imbalance (\|BAF - 0.5\|), heterozygous-site density, major / minor / total copy number, subclonal state, call |
+| `final/segments.tsv` | every segment of the reported fit: logR, BAF (median of the bins, HMM estimate, and the fit's prediction - the three tracks of the plots' BAF panel), heterozygous-site density, major / minor / total copy number, subclonal state, call |
 | `final/events.tsv` | one row per called event: chromosome, start, end, type (LOH / gain / loss / imbalance), size |
 | `final/plots/cna_<sample>.png` | depth and BAF tracks with the cbs_union fit; one A4 landscape page per sample |
 | `final/plots/cna_compare_<sample>.png` | the same with every segmentation's fit |

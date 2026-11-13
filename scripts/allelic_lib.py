@@ -168,6 +168,18 @@ def style_bw(ax):
     ax.tick_params(colors="black", labelsize=8, length=3, width=0.8)
 
 
+def effective(seg):
+    """Effective total and minor copy number per segment (subclonal mixes weighted by their cell fraction)."""
+    tot, mnr = [], []
+    for r in seg.itertuples():
+        a, b = r.nA, r.nB
+        if isinstance(r.sub_to, str) and r.sub_to:
+            ab, f = r.sub_to.split("@"); a2, b2 = map(int, ab.split(":")); f = float(f)
+            a, b = a + f * (a2 - a), b + f * (b2 - b)
+        tot.append(a + b); mnr.append(min(a, b))
+    return np.array(tot), np.array(mnr)
+
+
 def segment_types(seg):
     """Per segment: the call type of a passing call (LOH / gain / loss / imbalance against the most common clonal
     total copy number), "" for segments that are not passing calls."""
