@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="docs/haploid-logo.svg" alt="HAPLOID logo" width="200">
+  <img src="docs/haploid-banner.svg" alt="HAPLOID: HAPlotype-aware LOH and Imbalance Detection from low-pass whole-genome sequencing" width="660">
 </p>
 
 # HAPLOID
