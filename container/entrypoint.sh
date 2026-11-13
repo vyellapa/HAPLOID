@@ -16,13 +16,19 @@ usage() {
   cat <<'HELP'
 Usage: haploid COMMAND [arguments...]
 
-  run --bam BAM [--sample NAME] [--ichor DIR] [--bam ...]
-  run --sheet SAMPLES.tsv
+  run [--controls DIR] --bam BAM [--sample NAME] [--ichor DIR] [--bam ...]
+  run [--controls DIR] --sheet SAMPLES.tsv
                      Whole analysis: ichorCNA (unless --ichor gives existing 500 kb
                      results), phasing, joint fit, ploidy check, plots and a PDF.
                      Sheet: tab-separated, header sample, bam[, ichor]. Results in
-                     $HAPLOID_FINAL (full image: /out/final). Optional healthy-control
-                     mask: mount it and set HAPLOID_CONTROLS to that folder.
+                     $HAPLOID_FINAL (full image: /out/final). --controls: a folder
+                     made by 'controls' (its bin mask replaces the public one; its
+                     panel of normals is used when ichorCNA runs here).
+  controls --bam CTRL.bam ... [--wig CTRL.wig ...] [--list FILE] [--out DIR]
+                     Your own healthy-control references from healthy-control BAMs
+                     aligned exactly like the samples (>= 10 recommended): ichorCNA
+                     panel of normals + HAPLOID bin mask. Default output:
+                     $HAPLOID_CONTROLS_OUT (full image: /out/controls).
   cohort [BAM ...]    Prepare shared references, run samples, and build reports.
                      Without arguments, use $BAM_DIR/*_500k/*.bam.
   sample BAM         Run one BAM through the same preparation and full pipeline.
@@ -96,9 +102,10 @@ case "$command" in
   constrain) exec bash "$SC/refit_with.sh" "$@" ;;
   resolve) exec bash "$SC/resolve_discordant.sh" "$@" ;;
   run) exec bash "$SC/run_bam.sh" "$@" ;;
+  controls) exec bash "$SC/build_controls.sh" "$@" ;;
   plot) exec "$PY" "$SC/plot_cna_compare.py" "$@" ;;
   check)
-    for tool in samtools bcftools bgzip tabix liftOver readCounter runIchorCNA.R Rscript "$PY"; do
+    for tool in samtools bcftools bgzip tabix liftOver readCounter runIchorCNA.R createPanelOfNormals.R Rscript "$PY"; do
       command -v "$tool" >/dev/null || { echo "ERROR: $tool missing" >&2; exit 1; }
     done
     "$PY" -c 'import numpy, pandas, matplotlib, pysam; print("Python packages: OK")'

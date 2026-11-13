@@ -14,7 +14,8 @@ Two images:
 - `vyellapa/haploid:full` - the same plus the public reference data (~15 GB): hg38, the prepared GLIMPSE2 1000
   Genomes reference, panel sites, genetic maps and region exclusions. `haploid run` goes from a BAM to final
   results with one `/out` mount; see the main README's quick start. It holds nothing derived from samples (no
-  healthy-control mask, cohort bias, constraints or panel of normals).
+  healthy-control mask, cohort bias, constraints or panel of normals). Users build their own from their healthy
+  controls with `haploid controls` and pass the folder to `run --controls` (main README).
 
 Neither image includes BAMs, existing results or credentials. The fragment-count alternative to ichorCNA depth
 requires a prepared panel of normals (see below).

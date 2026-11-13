@@ -44,13 +44,15 @@ RUN curl --fail --location --retry 3 \
     && rm -rf "/tmp/ascat-${ASCAT_VERSION}"
 
 # ichorCNA (broadinstitute/ichorCNA, pinned commit) for BAMs without ichorCNA results; its panels of normals are
-# removed (the pipeline runs ichorCNA without one), leaving the hg38 GC / mappability / centromere files.
+# removed (ichorCNA runs without one unless the user builds their own: 'controls'), leaving the hg38 GC / mappability /
+# centromere files.
 # GPL-3 sources of ASCAT and ichorCNA are kept in /opt/src.
 RUN curl --fail --location --retry 3 \
         "https://github.com/broadinstitute/ichorCNA/archive/${ICHORCNA_COMMIT}.tar.gz" --output /tmp/ichorCNA.tar.gz \
     && tar -xzf /tmp/ichorCNA.tar.gz -C /tmp \
     && R CMD INSTALL "/tmp/ichorCNA-${ICHORCNA_COMMIT}" \
-    && install -m 755 "/tmp/ichorCNA-${ICHORCNA_COMMIT}/scripts/runIchorCNA.R" /opt/conda/bin/runIchorCNA.R \
+    && install -m 755 "/tmp/ichorCNA-${ICHORCNA_COMMIT}/scripts/runIchorCNA.R" \
+        "/tmp/ichorCNA-${ICHORCNA_COMMIT}/scripts/createPanelOfNormals.R" /opt/conda/bin/ \
     && rm -f "$(Rscript -e 'cat(system.file("extdata", package = "ichorCNA"))')"/*PoN* \
     && mv /tmp/ichorCNA.tar.gz "/opt/src/ichorCNA-${ICHORCNA_COMMIT}.tar.gz" \
     && rm -rf "/tmp/ichorCNA-${ICHORCNA_COMMIT}"
@@ -81,8 +83,10 @@ RUN chmod 755 scripts/*.sh container/*.sh \
     && chmod 777 work logs resources
 
 USER $MAMBA_USER
+# caches written by these checks would be unwritable for 'docker run --user', so they are removed
 RUN bash container/entrypoint.sh check \
-    && python3 -m unittest discover -s tests -v
+    && python3 -m unittest discover -s tests -v \
+    && rm -rf /tmp/matplotlib /tmp/cache
 
 ENTRYPOINT ["/bin/bash", "/opt/haploid/container/entrypoint.sh"]
 CMD ["--help"]

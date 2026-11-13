@@ -17,6 +17,17 @@ with read depth (ichorCNA's GC/mappability-corrected depth) to give, per segment
 number - including the events depth alone cannot see (copy-neutral LOH) or cannot tell apart (a loss vs. a balanced
 genome-doubled state).
 
+## HAPLOID Wiki
+
+**Installation, a step-by-step quick start, usage on laptops and HPC clusters, output descriptions and an FAQ are on
+the [HAPLOID Wiki](https://github.com/vyellapa/HAPLOID/wiki).** The short version, with Docker:
+
+```bash
+docker run --rm --init --platform linux/amd64 --user "$(id -u):$(id -g)" \
+  -v "$PWD/results:/out" -v /path/to/bams:/data:ro \
+  vyellapa/haploid:full run --bam /data/S1.bam            # -> results/final/report.pdf
+```
+
 ## What it does
 
 1. **Duplicate marking** of the input BAM (chr1-22).
@@ -100,8 +111,27 @@ everything else (resumable) under `results/work/` and `results/logs/`. `--ichor`
 `*correctedDepth.txt`, `*params.txt`, `*seg.txt` (with or without `_Y`; several samples' files are matched by sample
 name). Those are used only at 500 kb bins - every later step is built on them - otherwise ichorCNA is run here;
 `ichorCNA_source` in the summary says which. The image holds no data derived from samples. Bias-prone depth bins are masked with a public mask (hg38
-alternate-haplotype loci + the 1% most GC-rich bins); a lab's own healthy-control bin mask (`control_bin_mask.py`)
-replaces it when mounted and named with `-e HAPLOID_CONTROLS=/path/in/container`.
+alternate-haplotype loci + the 1% most GC-rich bins).
+
+#### Your own healthy controls (optional)
+
+If you have healthy-control BAMs sequenced and aligned exactly like your samples (same aligner, same hg38 with or
+without `_alt` contigs; 10 or more people recommended), build an ichorCNA panel of normals and a HAPLOID bin mask from
+them once, then pass that folder to `run`:
+
+```bash
+docker run --rm --platform linux/amd64 --user "$(id -u):$(id -g)" \
+  -v "$PWD/results:/out" -v /path/to/controls:/controls:ro \
+  vyellapa/haploid:full controls --bam /controls/C1.bam --bam /controls/C2.bam ...   # or --list, or --wig
+# -> results/controls/: ichor_pon_median.rds, control_bin_mask_500kb.tsv, controls.tsv, wigs/
+
+docker run ... vyellapa/haploid:full run --controls /out/controls --bam /data/S1.bam
+```
+
+The controls' bin mask replaces the public one, and ichorCNA run here normalises each sample with the panel
+(`ichorCNA_source` says so); results supplied with `--ichor` are used as given. Controls processed differently from the
+samples add bias instead of removing it. Use a fresh output folder (or `refit`) when switching masks for samples that
+already finished.
 
 ### Base image
 
@@ -219,6 +249,16 @@ Thresholds should be calibrated on each cohort (e.g. the detection score distrib
   a large event at exactly full clonal level, recurring unchanged across samples of one patient, should be checked.
 - Libraries with very high duplicate rates have few unique molecules and little allele information (`allele_qc`).
 - Developed and tested on hg38, chr1-22.
+
+## Citation
+
+A manuscript is in preparation. Until then, please cite this repository and the tools HAPLOID builds on (GLIMPSE2,
+ichorCNA, ASCAT, DNAcopy, the 1000 Genomes Project); references are on the
+[wiki home page](https://github.com/vyellapa/HAPLOID/wiki#citation).
+
+## Contact
+
+Questions and bug reports: [GitHub Issues](https://github.com/vyellapa/HAPLOID/issues).
 
 ## License
 

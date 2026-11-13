@@ -101,6 +101,37 @@ class ContainerEntrypointTests(unittest.TestCase):
         result = self.run_container("sample", bam, REPORT_FAIL="1")
         self.assertEqual(result.returncode, 9, result.stderr)
 
+    def real_scripts(self, *names):
+        for name in names:
+            shutil.copy(PROJECT / "scripts" / name, self.root / "scripts")
+
+    def wig(self, name, step=500000):
+        path = self.root / f"controls/{name}.wig"
+        path.parent.mkdir(exist_ok=True)
+        path.write_text(f"fixedStep chrom=chr1 start=1 step={step} span={step}\n10\n")
+        return str(path)
+
+    def test_controls_needs_three_500kb_controls_before_any_work(self):
+        self.real_scripts("build_controls.sh", "bam_lib.sh")
+        out = self.root / "ctrl_out"
+        result = self.run_container("controls", "--wig", self.wig("c1"), "--wig", self.wig("c2"), "--out", str(out))
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("at least 3", result.stderr)
+        self.assertFalse(out.exists())
+        result = self.run_container("controls", "--out", str(out),
+                                    *[a for n in ("c1", "c2", "c3") for a in ("--wig", self.wig(n, 1000000))])
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("not a 500 kb readCounter wig", result.stderr)
+        self.assertFalse((out / "ichor_pon_median.rds").exists())
+
+    def test_run_controls_folder_must_hold_a_bin_mask(self):
+        self.real_scripts("run_bam.sh", "bam_lib.sh")
+        (self.root / "empty_controls").mkdir()
+        result = self.run_container("run", "--controls", str(self.root / "empty_controls"), "--bam", self.bam("S"))
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("no control_bin_mask_500kb.tsv", result.stderr)
+        self.assertFalse((self.root / "cohort_bams.txt").exists())
+
 
 if __name__ == "__main__":
     unittest.main()

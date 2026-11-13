@@ -17,7 +17,9 @@ RUN rm -rf /opt/haploid/work /opt/haploid/logs \
 
 ENV REF=/opt/haploid/resources/hg38.fa \
     HAPLOID_GLIMPSE_REF=/opt/haploid/resources/glimpse_ref \
-    HAPLOID_FINAL=/out/final
+    HAPLOID_FINAL=/out/final \
+    HAPLOID_CONTROLS_OUT=/out/controls \
+    BAM_DIR=/opt/haploid/work/inputs
 
 USER $MAMBA_USER
 WORKDIR /opt/haploid

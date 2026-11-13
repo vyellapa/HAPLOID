@@ -22,7 +22,7 @@ Optional:
 
 | Path | Made by | Purpose |
 |---|---|---|
-| `control_bin_mask_500kb.tsv`, `pipeline_bias_500kb.tsv` | `scripts/control_bin_mask.py` from healthy controls run through the same pipeline | mask of bins that misbehave in controls; bias subtraction only with `HAPLOID_CONTROL_BIAS=1` |
+| `control_bin_mask_500kb.tsv`, `pipeline_bias_500kb.tsv` | `scripts/build_controls.sh` (counts the controls, then `control_bin_mask.py`) from healthy controls run through the same pipeline | mask of bins that misbehave in controls; bias subtraction only with `HAPLOID_CONTROL_BIAS=1` |
 | `cohort_bias_500kb.tsv` | `scripts/cohort_bias.py` (second pass) | residual depth bias from the cohort's tumor-negative samples |
 | `fit_overrides.tsv` | you (template: `fit_overrides.example.tsv`) | per-sample purity / ploidy / diploid constraints, applied to every joint fit |
 

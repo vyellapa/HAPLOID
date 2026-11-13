@@ -1,15 +1,18 @@
 #!/usr/bin/env bash
 # Whole analysis from BAMs to final results: ichorCNA (unless given) -> run_cohort.sh (markdup ... joint fit, plots)
 # -> resolve_discordant.sh -> final_report.py.
-# Usage: run_bam.sh --bam X.bam [--sample NAME] [--ichor DIR] [--bam Y.bam ...]
-#        run_bam.sh --sheet samples.tsv        (tab-separated with a header: sample, bam, and optionally ichor)
+# Usage: run_bam.sh [--controls DIR] --bam X.bam [--sample NAME] [--ichor DIR] [--bam Y.bam ...]
+#        run_bam.sh [--controls DIR] --sheet samples.tsv   (tab-separated with a header: sample, bam, and optionally ichor)
+#   --controls DIR: the lab's own healthy-control references (build_controls.sh): its bin mask replaces the public one,
+#                and ichorCNA run here normalises with its panel of normals (supplied --ichor results are used as given)
 #   --ichor DIR: existing ichorCNA results for that BAM; the folder may hold one sample's files or several samples'
 #                (<name>[_Y].correctedDepth.txt / .params.txt / .seg.txt, matched by the sample name). Used only at
 #                500 kb bins (the bins every later step is built on); at any other bin size ichorCNA is run here.
-#   env: CORES (4), JOBS (1), REF, HAPLOID_FINAL (work/final), HAPLOID_CONTROLS (healthy-control mask dir, optional)
+#   env: CORES (4), JOBS (1), REF, HAPLOID_FINAL (work/final), HAPLOID_CONTROLS (same as --controls)
 # Output: $HAPLOID_FINAL/summary.tsv, events.tsv, plots/, report.pdf; everything else under work/ and logs/
 set -euo pipefail
 ROOT=$(cd "$(dirname "$0")/.." && pwd); SC=$ROOT/scripts
+. "$SC/bam_lib.sh"
 export PY=${PY:-python3} CORES=${CORES:-4} JOBS=${JOBS:-1} PREP_JOBS=${PREP_JOBS:-1}
 export REF=${REF:-$ROOT/resources/hg38.fa}
 IN=$ROOT/work/inputs; mkdir -p "$IN" "$ROOT/logs"
@@ -28,22 +31,24 @@ while [ $# -gt 0 ]; do
       while IFS=$'\t' read -r s b i _; do
         [ -n "$s" ] && [ "$s" != sample ] && add "$s" "$b" "$i"
       done < <(tr -d '\r' < "$2"); shift 2 ;;
-    -h|--help) sed -n '2,10p' "$0"; exit 0 ;;
+    --controls) [ -d "${2:-}" ] || die "--controls: folder ${2:-} not found"; HAPLOID_CONTROLS=$(cd "$2" && pwd); shift 2 ;;
+    -h|--help) sed -n '2,12p' "$0"; exit 0 ;;
     *) die "unknown argument: $1 (see --help)" ;;
   esac
 done
 [ "${#bams[@]}" -gt 0 ] || die "no BAMs given (--bam or --sheet)"
 
-check_bam() {   # indexed, chr-named, and chr1-22 lengths match the reference
-  local b=$1
-  [ -s "$b" ] || die "BAM not found: $b"
-  [ -e "$b.bai" ] || [ -e "${b%.bam}.bai" ] || [ -e "$b.csi" ] || die "BAM not indexed: $b (samtools index it)"
-  local bad
-  bad=$(samtools view -H "$b" | awk -F'\t' '$1 == "@SQ" {for (i = 2; i <= NF; i++) {if ($i ~ /^SN:/) n = substr($i, 4); if ($i ~ /^LN:/) l = substr($i, 4)}; print n "\t" l}' \
-        | awk -F'\t' 'NR == FNR {len[$1] = $2; next} $1 ~ /^chr([1-9]|1[0-9]|2[0-2])$/ {n++; if (len[$1] != $2) bad = bad " " $1} END {if (n < 22) print "missing chr1-22 (" n " found; chr-prefixed names needed)"; else if (bad) print "lengths differ from the reference on" bad}' \
-          <(cut -f1,2 "$REF.fai") -)
-  [ -z "$bad" ] || die "$b: $bad - align to hg38 (chr1, chr2, ...)"
-}
+# ---- healthy controls: their bin mask (read by every later step) and ichorCNA panel of normals ----
+pon_note=""
+if [ -n "${HAPLOID_CONTROLS:-}" ]; then
+  [ -s "$HAPLOID_CONTROLS/control_bin_mask_500kb.tsv" ] \
+    || die "$HAPLOID_CONTROLS has no control_bin_mask_500kb.tsv (build it with: controls --bam ...)"
+  export HAPLOID_CONTROLS
+  if [ -s "$HAPLOID_CONTROLS/ichor_pon_median.rds" ]; then
+    export ICHOR_PON=$HAPLOID_CONTROLS/ichor_pon_median.rds; pon_note=" with panel of normals ($ICHOR_PON)"
+  fi
+  echo "[$(ts)] healthy controls: $HAPLOID_CONTROLS (bin mask${pon_note:+ + ichorCNA panel of normals})"
+fi
 
 ichor_files() {   # <dir> <sample> -> prints the correctedDepth path prefix ("<dir>/<name>.") or fails
   local d=$1 s=$2 hits
@@ -66,7 +71,7 @@ for k in "${!bams[@]}"; do
   b=$(cd "$(dirname "${bams[$k]}")" && pwd)/$(basename "${bams[$k]}")
   s=${names[$k]:-$(basename "$b" .bam)}
   [[ "$s" =~ ^[A-Za-z0-9._-]+$ ]] || die "sample name '$s' may only use letters, digits, '.', '_' and '-'"
-  check_bam "$b"
+  check_bam "$b" || exit 1
   d=$IN/${s}_500k; mkdir -p "$d"
   ln -sfn "$b" "$d/$s.bam"
   for x in "$b.bai" "${b%.bam}.bai" "$b.csi"; do [ -e "$x" ] && { ln -sfn "$x" "$d/$s.bam.${x##*.}"; break; }; done
@@ -80,18 +85,18 @@ for k in "${!bams[@]}"; do
       src="supplied ($(dirname "$p"))"
     else
       echo "[$(ts)] $s: supplied ichorCNA bins are $w bp, not 500 kb - running ichorCNA at 500 kb instead"
-      src="computed (supplied results at $w bp bins not usable)"
+      src="computed$pon_note (supplied results at $w bp bins not usable)"
     fi
   fi
   if [ -z "$src" ] || [[ "$src" == computed* ]]; then
-    if [ ! -s "$d/${s}_Y.correctedDepth.txt" ] || ! grep -q '^computed' "$d/ichor_source.txt" 2>/dev/null; then
+    src=${src:-computed$pon_note}         # rerun when an earlier run here used a different panel of normals (or none)
+    if [ ! -s "$d/${s}_Y.correctedDepth.txt" ] || [ "$(cat "$d/ichor_source.txt" 2>/dev/null)" != "$src" ]; then
       rm -f "$d/${s}_Y."*.txt
       echo "[$(ts)] $s: ichorCNA"
       bash "$SC/run_ichor.sh" "$s" "$d/$s.bam" "$d" > "$ROOT/logs/$s.ichor.log" 2>&1 \
         || die "ichorCNA failed for $s (see logs/$s.ichor.log)"
       tail -1 "$ROOT/logs/$s.ichor.log"
     fi
-    src=${src:-computed}
   fi
   echo "$src" > "$d/ichor_source.txt"
   staged+=("$d/$s.bam")
