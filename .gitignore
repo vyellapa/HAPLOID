@@ -18,6 +18,8 @@ ichor/
 *.wig
 *.png
 *.pdf
+# except the README overview figure: a synthetic illustration (docs/make_overview.py), no sample data
+!docs/haploid-overview.png
 
 # reference resources (built locally, see resources/README.md)
 resources/*

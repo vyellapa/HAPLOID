@@ -17,6 +17,10 @@ with read depth (GC- and mappability-corrected, in 500 kb bins) to give, per seg
 number - including the events depth alone cannot see (copy-neutral LOH) or cannot tell apart (a loss vs. a balanced
 genome-doubled state).
 
+<p align="center"><img src="docs/haploid-overview.png" alt="HAPLOID overview" width="100%"></p>
+
+**a** At 1-2x, each heterozygous SNP has only 0-2 reads. **b** Genotypes are imputed and phased against the 1000 Genomes panel, and reads are summed per haplotype in 500 kb bins. **c** Read depth and the haplotype B-allele fraction are segmented; copy-neutral LOH changes only the BAF. **d** Tumor fraction and ploidy are fitted jointly to both tracks, giving the major and minor copy number of every segment. **e** Per-sample results.
+
 ## HAPLOID Wiki
 
 **Installation, a step-by-step quick start, usage on laptops and HPC clusters, output descriptions and an FAQ are on
