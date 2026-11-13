@@ -28,7 +28,7 @@ ap.add_argument("--spread-k", type=float, default=3.0)
 ap.add_argument("--bias-max", type=float, default=0.3)
 A = ap.parse_args()
 
-sm = pd.read_csv(A.summary, sep="\t")
+sm = pd.read_csv(A.summary, sep="\t", dtype={"sample": str})      # "001" stays "001" (its bins file name)
 neg = sm[(sm.tumor_llr < A.max_llr) & sm.depth_source.astype(str).str.startswith("ichorCNA")]["sample"].tolist()
 cols = []
 for s in neg:

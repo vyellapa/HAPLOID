@@ -87,13 +87,14 @@ fi
 n_done=0; LIST=$LOG/cohort_todo.txt; : > "$LIST"
 for b in "${BAMS[@]}"; do
   s=$(basename "$b" .bam)
-  if [ -e "$DONE/$s.cleanup" ]; then n_done=$((n_done + 1)); else echo "$b" >> "$LIST"; fi
+  if [ -e "$DONE/$s.cleanup" ]; then n_done=$((n_done + 1)); else printf '%s\n' "$b" >> "$LIST"; fi
 done
 echo "[$(ts)] ${#BAMS[@]} samples: $n_done already done, $(wc -l < "$LIST") to run; $JOBS at a time x $CORES cores"
 echo "  progress:  ls $DONE/*.cleanup | wc -l      failures: ls $DONE/*.FAILED      per-sample logs: $LOG/samples/"
 
-xargs -P "$JOBS" -I{} bash -c 'b={}; s=$(basename "$b" .bam); "$0" "$s" "$b" >> "$1/$s.log" 2>&1 || true' \
-  "$SC/run_sample.sh" "$LOG/samples" < "$LIST"
+# each path is passed as an argument ($2), never pasted into the bash -c code: spaces and shell characters stay literal
+tr '\n' '\0' < "$LIST" | xargs -0 -r -n 1 -P "$JOBS" bash -c \
+  'b=$2; s=$(basename "$b" .bam); "$0" "$s" "$b" >> "$1/$s.log" 2>&1 || true' "$SC/run_sample.sh" "$LOG/samples"
 
 # ---- 4. summary ---------------------------------------------------------------------------------------------
 n_ok=0; n_fail=0

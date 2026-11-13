@@ -179,6 +179,8 @@ def build_segments(s):
     bal = S[(S.theta_hat <= 0.02) & (S.D > 0.7) & ~S.focal]
     if len(bal) < 3:                      # almost nothing balanced: normalise on the least imbalanced half
         bal = S[(S.theta_hat <= S[~S.focal].theta_hat.median()) & ~S.focal]
+    if not len(bal):                      # no segment has enough phased hets to rank by imbalance: every segment
+        bal = S[~S.focal]                 # (allele_qc low in cohort_table.py; the fit is then close to depth-only)
     norm = bal.obs.sum() / bal.exp.sum()
     rate = (bal.obs / bal.exp) / norm
     se_bin = np.sqrt(bal.pvar) / bal.exp / norm

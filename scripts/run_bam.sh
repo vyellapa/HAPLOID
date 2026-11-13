@@ -51,13 +51,17 @@ if [ -n "${HAPLOID_CONTROLS:-}" ]; then
 fi
 
 ichor_files() {   # <dir> <sample> -> prints the correctedDepth path prefix ("<dir>/<name>.") or fails
-  local d=$1 s=$2 hits
+  local d=$1 s=$2 f hits=() own=()
   [ -d "$d" ] || { echo "depth results folder not found: $d" >&2; return 1; }
-  mapfile -t hits < <(find "$d" -maxdepth 2 -name '*correctedDepth.txt' | sort)
+  while IFS= read -r f; do              # several samples' results: only the whole name counts (S1 is not S10_Y)
+    hits+=("$f")
+    case ${f##*/} in "$s.correctedDepth.txt" | "${s}_Y.correctedDepth.txt") own+=("$f") ;; esac
+  done < <(find "$d" -maxdepth 2 -name '*correctedDepth.txt' | sort)
   if [ "${#hits[@]}" -gt 1 ]; then
-    mapfile -t hits < <(printf '%s\n' "${hits[@]}" | awk -v s="$s" '{n = $0; sub(/.*\//, "", n)} index(n, s) == 1')
+    [ "${#own[@]}" -eq 1 ] || { echo "depth results: expected one $s.correctedDepth.txt or ${s}_Y.correctedDepth.txt in $d, found ${#own[@]}" >&2; return 1; }
+    hits=("${own[0]}")
   fi
-  [ "${#hits[@]}" -eq 1 ] || { echo "depth results: expected one *correctedDepth.txt for $s in $d, found ${#hits[@]}" >&2; return 1; }
+  [ "${#hits[@]}" -eq 1 ] || { echo "depth results: no *correctedDepth.txt in $d" >&2; return 1; }
   local p=${hits[0]%correctedDepth.txt}
   [ -s "${p}params.txt" ] && [ -s "${p}seg.txt" ] || { echo "depth results: ${p}params.txt or ${p}seg.txt missing" >&2; return 1; }
   echo "$p"
@@ -99,6 +103,13 @@ for k in "${!bams[@]}"; do
     fi
   fi
   echo "$src" > "$d/ichor_source.txt"
+  # depth results other than those the last run here was fitted on (other files, or recomputed): redo every step that
+  # reads them, or run_cohort.sh would skip the sample and report fits made from the old ones
+  fp=$(cat "$d/${s}_Y.correctedDepth.txt" "$d/${s}_Y.params.txt" "$d/${s}_Y.seg.txt" | cksum)
+  if [ "$fp" != "$(cat "$d/depth_inputs.cksum" 2>/dev/null)" ]; then
+    rm -f "$ROOT/work/done/$s."{depth,ascat,joint,plot,cleanup}
+    echo "$fp" > "$d/depth_inputs.cksum"
+  fi
   staged+=("$d/$s.bam")
 done
 

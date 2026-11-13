@@ -10,6 +10,8 @@ lrcol <- ifelse(length(a) >= 3, a[3], "logR_cnacs")
 penalty <- ifelse(length(a) >= 4, as.numeric(a[4]), 70)
 root <- normalizePath(file.path(dirname(sub("--file=", "", grep("--file=", commandArgs(), value = TRUE))), ".."))
 out <- file.path(root, "work/cnv", paste0(s, "_ascat")); dir.create(out, showWarnings = FALSE, recursive = TRUE)
+f_seg <- file.path(out, paste0(s, ".ascat_segments.tsv"))
+unlink(f_seg)   # written only when this run's ASCAT fit succeeds; an earlier run's would hide the ASPCF fallback
 
 d <- read.delim(file.path(root, "work/cnv", paste0(s, ".bins.tsv")))
 d <- d[is.finite(d[[lrcol]]), ]
@@ -38,7 +40,7 @@ res <- tryCatch(ascat.runAscat(obj, gamma = 1, img.dir = out, write_segments = F
                 error = function(e) { message("ASCAT fit failed: ", conditionMessage(e)); NULL })
 seg <- if (is.null(res)) NULL else res$segments
 if (!is.null(seg) && nrow(seg) > 0)
-  write.table(seg, file.path(out, paste0(s, ".ascat_segments.tsv")), sep = "\t", quote = FALSE, row.names = FALSE)
+  write.table(seg, f_seg, sep = "\t", quote = FALSE, row.names = FALSE)
 na1 <- function(x) if (is.null(x) || length(x) == 0) NA else x
 summ <- data.frame(sample = s, purity = na1(res$purity), ploidy = na1(res$ploidy), goodness = na1(res$goodnessOfFit),
                    penalty = penalty, logR = lrcol)
