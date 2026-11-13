@@ -168,8 +168,9 @@ def style_bw(ax):
     ax.tick_params(colors="black", labelsize=8, length=3, width=0.8)
 
 
-def call_events(seg):
-    """Passing calls merged into events: consecutive passing segments on a chromosome with the same type."""
+def segment_types(seg):
+    """Per segment: the call type of a passing call (LOH / gain / loss / imbalance against the most common clonal
+    total copy number), "" for segments that are not passing calls."""
     base = seg[seg.sub_to.isna()].groupby(["nA", "nB"]).mb.sum().idxmax(); bt = sum(base)
     def typ(r):
         a, b = r.nA, r.nB
@@ -178,11 +179,16 @@ def call_events(seg):
         if b == 0 and a + b >= 1:
             return "LOH"
         return "gain" if a + b > bt else ("loss" if a + b < bt else "imbalance")
+    return [typ(r) if str(r.call_pass) == "True" else "" for r in seg.itertuples()]
+
+
+def call_events(seg):
+    """Passing calls merged into events: consecutive passing segments on a chromosome with the same type."""
     x = seg.copy()
     x["ok"] = x.call_pass.astype(str) == "True"
     if not x.ok.any():
         return pd.DataFrame(columns=["chrom", "start", "end", "type", "mb", "focal"])
-    x["type"] = [typ(r) if r.ok else "" for r in x.itertuples()]
+    x["type"] = segment_types(x)
     x["_c"] = x.chrom.str[3:].astype(int); x = x.sort_values(["_c", "start"])
     ev, prev_ok = [], False
     for r in x.itertuples():

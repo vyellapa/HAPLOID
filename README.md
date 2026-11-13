@@ -58,6 +58,7 @@ docker run --rm --init --platform linux/amd64 --user "$(id -u):$(id -g)" \
 | File | Content |
 |---|---|
 | `final/summary.tsv` | one row per sample: `tumor_detected`, `tumor_llr`, `TF` with its 95% interval (`TF_lo`, `TF_hi`, `TF_uncertain`), `ploidy`, `ctDNA_fraction` (+ `ctDNA_lo`, `ctDNA_hi`), `loh_mb`, `cnloh_mb`, event counts, the depth HMM's estimate (`ichor_TF`, `ichor_ploidy`, `ichorCNA_source`), QC (`dup_rate`, `unique_reads_M`, `baf_bins`, `allele_qc`, `fit_flag`) |
+| `final/segments.tsv` | every segment of the reported fit: logR, allelic imbalance (\|BAF - 0.5\|), heterozygous-site density, major / minor / total copy number, subclonal state, call |
 | `final/events.tsv` | one row per called event: chromosome, start, end, type (LOH / gain / loss / imbalance), size |
 | `final/plots/cna_<sample>.png` | depth and BAF tracks with the cbs_union fit; one A4 landscape page per sample |
 | `final/plots/cna_compare_<sample>.png` | the same with every segmentation's fit |
@@ -98,10 +99,14 @@ docker run --rm --init --platform linux/amd64 --user "$(id -u):$(id -g)" \
 #                        run --bam /data/S1.bam --ichor /data/S1_ichor/   # existing depth results (500 kb bins)
 #                        run --sheet /data/samples.tsv                   # many: columns sample, bam[, ichor]
 
-# Apptainer:
-apptainer pull haploid_full.sif docker://vyellapa/haploid:full
-apptainer run --bind "$PWD/results:/out" --bind /path/to/bams:/data haploid_full.sif run --bam /data/S1.bam
+# Singularity / Apptainer (HPC):
+singularity pull haploid_full.sif docker://vyellapa/haploid:full
+singularity run --cleanenv --no-home --env CORES=8 \
+  --bind "$PWD/results":/out --bind /path/to/bams:/data:ro \
+  haploid_full.sif run --bam /data/S1.bam
 ```
+
+SLURM jobs and troubleshooting: [wiki, Singularity](https://github.com/vyellapa/HAPLOID/wiki/Singularity).
 
 Results go to `results/final/`; everything else (resumable) to `results/work/` and `results/logs/`. `--ichor` takes a
 folder with `*correctedDepth.txt`, `*params.txt` and `*seg.txt` (with or without `_Y`; several samples' files are

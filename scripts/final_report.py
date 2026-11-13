@@ -2,8 +2,10 @@
 and a PDF (A4 landscape: a summary table, then one page per sample with work/plots/cna_<sample>.png).
 ichor_TF / ichor_ploidy = the depth-only HMM estimate; ichorCNA_source = whether those results were supplied or computed
 here (work/inputs/<s>_500k/ichor_source.txt).
+segments.tsv: every segment of the fit each sample is reported from (cohort_summary segments_from), with its depth,
+allele balance, fitted copy numbers and call.
 Usage: final_report.py <samples...>     env: HAPLOID_FINAL (output folder, default work/final)
-Output: summary.tsv, events.tsv, plots/cna_<s>.png + cna_compare_<s>.png, report.pdf
+Output: summary.tsv, events.tsv, segments.tsv, plots/cna_<s>.png + cna_compare_<s>.png, report.pdf
 """
 import os, shutil, sys, textwrap
 from pathlib import Path
@@ -12,6 +14,7 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_pdf import PdfPages
+from allelic_lib import segment_types
 
 ROOT = Path(__file__).resolve().parents[1]
 SAMPLES = sys.argv[1:] or sys.exit("usage: final_report.py <samples...>")
@@ -27,6 +30,22 @@ S.to_csv(OUT / "summary.tsv", sep="\t", index=False)
 E = pd.read_csv(ROOT / "work/cohort_events.tsv", sep="\t", dtype={"sample": str})
 E = E[E["sample"].isin(SAMPLES)]
 E.to_csv(OUT / "events.tsv", sep="\t", index=False)
+SEG_COLS = {"chrom": "chrom", "start": "start", "end": "end", "mb": "size_mb", "bins": "bins", "r_obs": "logR",
+            "theta_hat": "baf_imbalance", "hets_mb": "het_sites_per_mb", "nA": "major_cn", "nB": "minor_cn",
+            "sub_to": "subclonal_state", "focal": "focal", "filter_reason": "filter_reason"}
+segs = []
+for _, r in S.iterrows():
+    f = ROOT / f"work/joint_modes/{r.get('segments_from') or 'arms'}/{r['sample']}.joint_segments.tsv"
+    if f.exists():
+        g = pd.read_csv(f, sep="\t")
+        call = segment_types(g) if str(r.tumor_detected) == "True" else [""] * len(g)
+        g = g[list(SEG_COLS)].rename(columns=SEG_COLS)
+        g.insert(0, "fit", r.get("segments_from") or "arms"); g.insert(0, "sample", r["sample"])
+        g.insert(g.columns.get_loc("minor_cn") + 1, "total_cn", g.major_cn + g.minor_cn)
+        g.insert(g.columns.get_loc("subclonal_state") + 1, "call", call)
+        segs.append(g.round({"size_mb": 2, "logR": 4, "baf_imbalance": 3, "het_sites_per_mb": 1}))
+(pd.concat(segs) if segs else pd.DataFrame(columns=["sample", "fit", *SEG_COLS.values()])).to_csv(
+    OUT / "segments.tsv", sep="\t", index=False)
 for s in SAMPLES:
     for p in (f"cna_{s}.png", f"cna_compare_{s}.png"):
         if (ROOT / "work/plots" / p).exists():
@@ -97,4 +116,4 @@ with PdfPages(OUT / "report.pdf") as pdf:
         ax.imshow(plt.imread(p), interpolation="lanczos"); ax.set_anchor("N")
         pdf.savefig(fig, dpi=200); plt.close(fig)
 print(f"{len(S)} samples ({int((S.tumor_detected.astype(str) == 'True').sum())} tumor detected) -> {OUT}/summary.tsv, "
-      f"events.tsv, plots/, report.pdf")
+      f"events.tsv, segments.tsv, plots/, report.pdf")

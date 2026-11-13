@@ -107,6 +107,7 @@ for s, a in arms.iterrows():
                      ploidy=fit.joint_ploidy if det else "", ambiguous=fit.ambiguous if det else "",
                      dLL_other_ploidy=fit.dLL_other_ploidy if det else "",
                      ichor_TF=a.ichor_TF, ichor_ploidy=a.ichor_ploidy, events_from=use if det else "",
+                     segments_from=folder,                # work/joint_modes/<this>/: the fit reported (final_report.py)
                      loh_mb=round(loh.mb.sum(), 1), cnloh_mb=src.cnloh_mb if det else 0.0,
                      n_loh=int((ev.type == "LOH").sum()), n_gain=int((ev.type == "gain").sum()),
                      n_loss=int((ev.type == "loss").sum()), n_focal=int(ev.focal.astype(bool).sum()) if len(ev) else 0,
