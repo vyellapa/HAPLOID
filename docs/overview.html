@@ -1,0 +1,258 @@
+<!doctype html>
+<!--
+HAPLOID overview figure (docs/haploid-overview.png), drawn with D3 from synthetic data (fixed seed; no sample data).
+Render from the repository root:
+  "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" --headless=new --hide-scrollbars \
+    --window-size=1700,660 --force-device-scale-factor=2 --virtual-time-budget=8000 \
+    --screenshot=docs/haploid-overview.png "file://$PWD/docs/overview.html"
+(on Linux: google-chrome / chromium with the same options)
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>HAPLOID overview</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=block" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/d3@7.9.0/dist/d3.min.js"></script>
+<style>
+  html, body { margin: 0; background: #ffffff; }
+  svg { display: block; font-family: "Inter", "Helvetica Neue", Arial, sans-serif; }
+  .title { font-size: 21px; font-weight: 700; fill: #1f2933; }
+  .letter { font-size: 22px; font-weight: 700; fill: #1f2933; }
+  .ptitle { font-size: 16px; font-weight: 600; fill: #1f2933; }
+  .sub { font-size: 12.5px; fill: #6b7785; }
+  .tick text, .lab { font-size: 11px; fill: #6b7785; }
+  .axislab { font-size: 11.5px; fill: #1f2933; font-weight: 500; }
+  .note { font-size: 11px; fill: #6b7785; font-style: italic; }
+  .domain, .tick line { stroke: #9aa5b1; }
+</style>
+</head>
+<body>
+<svg id="fig" width="1700" height="660"></svg>
+<script>
+// ---------- helpers ----------
+function mulberry32(a) { return function () { a |= 0; a = a + 0x6D2B79F5 | 0; let t = Math.imul(a ^ a >>> 15, 1 | a);
+  t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }; }
+const rnd = mulberry32(11);
+const gauss = (sd) => sd * Math.sqrt(-2 * Math.log(rnd() + 1e-12)) * Math.cos(2 * Math.PI * rnd());
+const C = { ink: "#1f2933", muted: "#6b7785", grid: "#dfe3e8", bg: "#f6f8fa", dots: "#a3adb8",
+            blue: "#2f6fb0", orange: "#e08a1e", teal: "#1f9e8f", red: "#c8423b", purple: "#7a5aa6" };
+const EV = { gain: C.orange, LOH: C.blue, "CN-LOH": C.teal };
+const svg = d3.select("#fig");
+const W = 1700, H = 660;
+
+svg.append("text").attr("class", "title").attr("x", W / 2).attr("y", 38).attr("text-anchor", "middle")
+  .text("HAPLOID: haplotype-aware LOH and allele-specific copy number from low-pass cfDNA");
+
+// ---------- panel frames ----------
+const P = [
+  { k: "a", x: 18, w: 262, t: "Low-pass cfDNA", s: ["~1-2x coverage: each heterozygous", "SNP has 0, 1 or 2 reads"] },
+  { k: "b", x: 308, w: 282, t: "Phase and pool", s: ["phase against the 1000 Genomes panel;", "sum reads per haplotype"] },
+  { k: "c", x: 618, w: 432, t: "Depth and haplotype BAF", s: ["500 kb bins, segmented;", "copy-neutral LOH changes only the BAF"] },
+  { k: "d", x: 1078, w: 360, t: "Joint fit", s: ["tumor fraction x ploidy;", "allele-specific copy number"] },
+  { k: "e", x: 1466, w: 216, t: "Results", s: ["per sample"] },
+];
+const TOP = 66, PH = 548;
+P.forEach(p => {
+  const g = svg.append("g").attr("transform", `translate(${p.x},${TOP})`); p.g = g;
+  g.append("rect").attr("width", p.w).attr("height", PH).attr("rx", 14).attr("fill", C.bg).attr("stroke", C.grid);
+  g.append("text").attr("class", "letter").attr("x", 16).attr("y", 36).text(p.k);
+  g.append("text").attr("class", "ptitle").attr("x", 40).attr("y", 35).text(p.t);
+  p.s.forEach((line, i) => g.append("text").attr("class", "sub").attr("x", 16).attr("y", 62 + i * 17).text(line));
+});
+svg.append("defs").append("marker").attr("id", "arr").attr("viewBox", "0 0 10 10").attr("refX", 9).attr("refY", 5)
+  .attr("markerWidth", 7).attr("markerHeight", 7).attr("orient", "auto")
+  .append("path").attr("d", "M0,0 L10,5 L0,10 z").attr("fill", C.muted);
+for (let i = 0; i < P.length - 1; i++) {
+  const x0 = P[i].x + P[i].w + 3, x1 = P[i + 1].x - 3, y = TOP + PH / 2;
+  svg.append("line").attr("x1", x0).attr("x2", x1).attr("y1", y).attr("y2", y).attr("stroke", C.muted)
+    .attr("stroke-width", 2).attr("marker-end", "url(#arr)");
+}
+
+// ---------- a: sparse reads at ~1.5x ----------
+(function () {
+  const g = P[0].g, x0 = 18, x1 = P[0].w - 18, L = 100;              // a 100-unit stretch of genome
+  const x = d3.scaleLinear([0, L], [x0, x1]);
+  const snps = [6, 13, 21, 27, 35, 44, 51, 58, 66, 73, 81, 88, 95];
+  // ~1.3x: 18 reads of length 7 over 100 units, laid out like real low-pass coverage - never more than 2 deep, so a
+  // heterozygous SNP has 0, 1 or 2 reads (here 3 SNPs with none)
+  const readLen = 7, reads = [1, 13.5, 16, 20.8, 24, 28, 31.3, 37, 44.5, 46, 53, 56, 60.3, 73.5, 76, 83, 85, 91];
+  const lanes = [], laneOf = [];
+  reads.forEach(s => { let l = lanes.findIndex(e => e <= s - 0.2); if (l < 0) { l = lanes.length; lanes.push(0); }
+    lanes[l] = s + readLen; laneOf.push(l); });
+  const yAxis = 330, laneY = l => yAxis - 32 - l * 22;
+  // dashed SNP guides
+  snps.forEach(s => g.append("line").attr("x1", x(s)).attr("x2", x(s)).attr("y1", yAxis).attr("y2", laneY(lanes.length - 1) - 14)
+    .attr("stroke", C.grid).attr("stroke-dasharray", "2,3"));
+  // reads, with the allele they carry at each SNP
+  reads.forEach((s, i) => {
+    const y = laneY(laneOf[i]);
+    g.append("line").attr("x1", x(s)).attr("x2", x(s + readLen)).attr("y1", y).attr("y2", y)
+      .attr("stroke", C.dots).attr("stroke-width", 6).attr("stroke-linecap", "round");
+    snps.filter(v => v > s && v < s + readLen).forEach(v => g.append("circle").attr("cx", x(v)).attr("cy", y).attr("r", 4.6)
+      .attr("fill", rnd() < 0.5 ? C.blue : C.orange).attr("stroke", "white").attr("stroke-width", 1.2));
+  });
+  // genome line, SNP markers and per-SNP read counts
+  g.append("line").attr("x1", x0).attr("x2", x1).attr("y1", yAxis).attr("y2", yAxis).attr("stroke", C.ink)
+    .attr("stroke-width", 3).attr("stroke-linecap", "round");
+  snps.forEach(s => {
+    const n = reads.filter(r => s > r && s < r + readLen).length;
+    g.append("circle").attr("cx", x(s)).attr("cy", yAxis).attr("r", 5).attr("fill", n ? C.ink : "white")
+      .attr("stroke", C.ink).attr("stroke-width", 1.5);
+    g.append("text").attr("class", "lab").attr("x", x(s)).attr("y", yAxis + 22).attr("text-anchor", "middle")
+      .attr("font-weight", n ? 700 : 400).attr("fill", n ? C.ink : C.muted).text(n);
+  });
+  g.append("text").attr("class", "lab").attr("x", x0).attr("y", yAxis + 40).text("reads per SNP");
+  // depth track (~1.5x)
+  const depth = d3.range(0, L + 0.01, 0.5).map(p => [p, reads.filter(r => p >= r && p < r + readLen).length]);
+  const yd = d3.scaleLinear([0, 3], [470, 412]);
+  g.append("path").datum(depth).attr("fill", "#c9d1d9").attr("stroke", C.muted).attr("stroke-width", 0.8)
+    .attr("d", d3.area().curve(d3.curveStepAfter).x(d => x(d[0])).y0(yd(0)).y1(d => yd(d[1])));
+  g.append("g").attr("transform", `translate(${x0},0)`).call(d3.axisLeft(yd).tickValues([0, 1, 2, 3]).tickFormat(d3.format("d")).tickSize(3));
+  g.append("text").attr("class", "lab").attr("x", x0).attr("y", 398).text("read depth (mean ~1.3x)");
+  g.append("text").attr("class", "lab").attr("x", (x0 + x1) / 2).attr("y", 500).attr("text-anchor", "middle")
+    .text("● allele 1   ● allele 2   ○ no read");
+  g.selectAll("text").filter(function () { return this.textContent.startsWith("●"); }).each(function () {
+    const t = d3.select(this).text(""); t.append("tspan").attr("fill", C.blue).text("● ");
+    t.append("tspan").text("allele 1   "); t.append("tspan").attr("fill", C.orange).text("● ");
+    t.append("tspan").text("allele 2   "); t.append("tspan").text("○ no read"); });
+})();
+
+// ---------- b: two haplotypes, reads pooled per bin ----------
+(function () {
+  const g = P[1].g, x0 = 22, x1 = P[1].w - 22, n = 11;
+  const xs = d3.range(n).map(i => x0 + 10 + i * (x1 - x0 - 20) / (n - 1));
+  [[175, C.blue, "haplotype 1", -1], [275, C.orange, "haplotype 2", 1]].forEach(([y, c, lab, dir]) => {
+    g.append("line").attr("x1", x0).attr("x2", x1).attr("y1", y).attr("y2", y).attr("stroke", c).attr("stroke-width", 3)
+      .attr("stroke-linecap", "round");
+    xs.forEach(xv => {
+      g.append("circle").attr("cx", xv).attr("cy", y).attr("r", 5).attr("fill", c).attr("stroke", "white").attr("stroke-width", 1.4);
+      const k = Math.floor(rnd() * (dir < 0 ? 3 : 2.2));            // 0-2 reads per SNP, more on haplotype 1
+      for (let j = 0; j < k; j++) g.append("line").attr("x1", xv - 7).attr("x2", xv + 7)
+        .attr("y1", y + dir * (13 + j * 9)).attr("y2", y + dir * (13 + j * 9))
+        .attr("stroke", c).attr("stroke-width", 4.5).attr("stroke-linecap", "round").attr("opacity", 0.55);
+    });
+    g.append("text").attr("x", x1).attr("y", y + (dir < 0 ? 22 : -14)).attr("text-anchor", "end").attr("font-size", 12)
+      .attr("font-weight", 600).attr("fill", c).text(lab);
+  });
+  g.append("text").attr("class", "lab").attr("x", P[1].w / 2).attr("y", 340).attr("text-anchor", "middle")
+    .text("x ~400 heterozygous SNPs per 500 kb bin");
+  const bx = 26, bw = P[1].w - 52, h1 = 612, h2 = 381, f = h1 / (h1 + h2);
+  g.append("text").attr("class", "lab").attr("x", P[1].w / 2).attr("y", 392).attr("text-anchor", "middle")
+    .text("reads per haplotype in one bin");
+  g.append("rect").attr("x", bx).attr("y", 402).attr("width", bw * f).attr("height", 34).attr("rx", 5).attr("fill", C.blue);
+  g.append("rect").attr("x", bx + bw * f).attr("y", 402).attr("width", bw * (1 - f)).attr("height", 34).attr("rx", 5).attr("fill", C.orange);
+  g.append("text").attr("x", bx + bw * f / 2).attr("y", 424).attr("text-anchor", "middle").attr("fill", "white")
+    .attr("font-size", 12.5).attr("font-weight", 700).text(`h1 = ${h1}`);
+  g.append("text").attr("x", bx + bw * f + bw * (1 - f) / 2).attr("y", 424).attr("text-anchor", "middle").attr("fill", "white")
+    .attr("font-size", 12.5).attr("font-weight", 700).text(`h2 = ${h2}`);
+  g.append("text").attr("x", P[1].w / 2).attr("y", 470).attr("text-anchor", "middle").attr("font-size", 13.5)
+    .attr("font-weight", 700).attr("fill", C.ink).text(`BAF = ${h1} / ${h1 + h2} = ${f.toFixed(2)}`);
+})();
+
+// ---------- synthetic genome (shared by c and d) ----------
+const rho = 0.6, ploidy = 2.1;
+const CH = [{ n: 30, t: 2, m: 1 }, { n: 26, t: 3, m: 1, ev: "gain" }, { n: 22, t: 2, m: 1 },
+            { n: 20, t: 1, m: 0, ev: "LOH" }, { n: 18, t: 2, m: 1 }, { n: 16, t: 2, m: 0, ev: "CN-LOH" }];
+let off = 0;
+CH.forEach((c, i) => {
+  c.i = i; c.s = off; c.e = off + c.n; off = c.e;
+  c.r = Math.log2((rho * c.t + 2 * (1 - rho)) / (rho * ploidy + 2 * (1 - rho)));
+  c.b = (1 - rho + rho * c.m) / (2 * (1 - rho) + rho * c.t);
+  c.bins = d3.range(c.n).map(j => ({ x: c.s + j + 0.5, r: c.r + gauss(0.07),
+    baf: (rnd() < 0.5 ? c.b : 1 - c.b) + gauss(0.03) }));
+});
+const NB = off;
+
+function genomeAxes(g, xL, xR, yT, yB, yDomain, ticks, label) {
+  const x = d3.scaleLinear([0, NB], [xL, xR]), y = d3.scaleLinear(yDomain, [yB, yT]);
+  CH.forEach(c => { if (c.ev) g.append("rect").attr("x", x(c.s)).attr("width", x(c.e) - x(c.s)).attr("y", yT)
+    .attr("height", yB - yT).attr("fill", EV[c.ev]).attr("opacity", 0.11); });
+  CH.slice(1).forEach(c => g.append("line").attr("x1", x(c.s)).attr("x2", x(c.s)).attr("y1", yT).attr("y2", yB)
+    .attr("stroke", C.grid));
+  g.append("g").attr("transform", `translate(${xL},0)`).call(d3.axisLeft(y).tickValues(ticks).tickSize(3)
+    .tickFormat(ticks.every(Number.isInteger) && label === "copies" ? d3.format("d") : null));
+  g.append("line").attr("x1", xL).attr("x2", xR).attr("y1", yB).attr("y2", yB).attr("stroke", "#9aa5b1");
+  g.append("text").attr("class", "axislab").attr("transform", `translate(${xL - 40},${(yT + yB) / 2}) rotate(-90)`)
+    .attr("text-anchor", "middle").text(label);
+  return { x, y };
+}
+
+// ---------- c: depth + haplotype BAF ----------
+(function () {
+  const g = P[2].g, xL = 70, xR = P[2].w - 18;
+  const d = genomeAxes(g, xL, xR, 118, 285, [-0.8, 0.8], [-0.5, 0, 0.5], "depth (logR)");
+  CH.forEach(c => {
+    c.bins.forEach(b => g.append("circle").attr("cx", d.x(b.x)).attr("cy", d.y(b.r)).attr("r", 2.3).attr("fill", C.dots));
+    g.append("line").attr("x1", d.x(c.s)).attr("x2", d.x(c.e)).attr("y1", d.y(c.r)).attr("y2", d.y(c.r))
+      .attr("stroke", C.blue).attr("stroke-width", 3);
+    if (c.ev) g.append("text").attr("x", d.x((c.s + c.e) / 2)).attr("y", 134).attr("text-anchor", "middle")
+      .attr("font-size", 12).attr("font-weight", 700).attr("fill", EV[c.ev]).text(c.ev);
+  });
+  const b = genomeAxes(g, xL, xR, 318, 485, [0, 1], [0, 0.5, 1], "haplotype BAF");
+  CH.forEach(c => {
+    c.bins.forEach(v => g.append("circle").attr("cx", b.x(v.x)).attr("cy", b.y(v.baf)).attr("r", 2.3).attr("fill", C.dots));
+    [c.b, 1 - c.b].forEach(v => g.append("line").attr("x1", b.x(c.s)).attr("x2", b.x(c.e)).attr("y1", b.y(v)).attr("y2", b.y(v))
+      .attr("stroke", C.orange).attr("stroke-width", 2.6));
+    g.append("text").attr("class", "lab").attr("x", b.x((c.s + c.e) / 2)).attr("y", 503).attr("text-anchor", "middle")
+      .text(`chr${c.i + 1}`);
+  });
+})();
+
+// ---------- d: likelihood surface + copy-number profile ----------
+(function () {
+  const g = P[3].g, xL = 70, xR = P[3].w - 22;
+  const nx = 70, ny = 60, T = d3.range(nx).map(i => 0.05 + i * 0.95 / (nx - 1)), Pl = d3.range(ny).map(j => 1.5 + j * 3 / (ny - 1));
+  const vals = [];
+  Pl.forEach(p => T.forEach(t => vals.push(Math.max(-(((t - rho) / 0.12) ** 2) - ((p - ploidy) / 0.35) ** 2,
+    -(((t - 0.33) / 0.10) ** 2) - ((p - 4.1) / 0.30) ** 2 - 1.6))));
+  const xs = d3.scaleLinear([0.05, 1], [xL, xR]), ys = d3.scaleLinear([1.5, 4.5], [300, 116]);
+  const cont = d3.contours().size([nx, ny]).thresholds(d3.range(-9, 0.01, 1))(vals);
+  const col = d3.scaleSequential(d3.interpolateBlues).domain([-11, 0]);
+  const gx = d3.scaleLinear([0, nx - 1], [xL, xR]), gy = d3.scaleLinear([0, ny - 1], [300, 116]);
+  g.append("rect").attr("x", xL).attr("y", 116).attr("width", xR - xL).attr("height", 184).attr("fill", "#f7fbff");
+  g.append("g").selectAll("path").data(cont).join("path").attr("fill", d => col(d.value))
+    .attr("d", d3.geoPath(d3.geoTransform({ point(px, py) { this.stream.point(gx(px - 0.5), gy(py - 0.5)); } })));
+  g.append("g").attr("transform", "translate(0,300)").call(d3.axisBottom(xs).tickValues([0.2, 0.6, 1.0]).tickSize(3));
+  g.append("g").attr("transform", `translate(${xL},0)`).call(d3.axisLeft(ys).tickValues([2, 3, 4]).tickFormat(d3.format("d")).tickSize(3));
+  g.append("text").attr("class", "axislab").attr("x", (xL + xR) / 2).attr("y", 330).attr("text-anchor", "middle").text("tumor fraction");
+  g.append("text").attr("class", "axislab").attr("transform", `translate(${xL - 32},208) rotate(-90)`).attr("text-anchor", "middle").text("ploidy");
+  g.append("path").attr("d", d3.symbol(d3.symbolStar, 210)()).attr("transform", `translate(${xs(rho)},${ys(ploidy)})`)
+    .attr("fill", C.red).attr("stroke", "white").attr("stroke-width", 1.2);
+  g.append("line").attr("x1", xs(rho) + 8).attr("y1", ys(ploidy) - 6).attr("x2", xs(0.83)).attr("y2", ys(3.05)).attr("stroke", C.red);
+  g.append("text").attr("x", xs(0.83) + 2).attr("y", ys(3.05) - 4).attr("font-size", 11.5).attr("font-weight", 700)
+    .attr("fill", C.red).text("best fit");
+  g.append("line").attr("x1", xs(0.36)).attr("y1", ys(4.1)).attr("x2", xs(0.62)).attr("y2", ys(4.1)).attr("stroke", C.muted);
+  g.append("text").attr("x", xs(0.63)).attr("y", ys(4.1) - 2).attr("font-size", 10.5).attr("fill", C.muted).text("genome-doubled");
+  g.append("text").attr("x", xs(0.63)).attr("y", ys(4.1) + 11).attr("font-size", 10.5).attr("fill", C.muted).text("alternative");
+  // copy-number profile
+  const cn = genomeAxes(g, xL, xR, 368, 478, [-0.3, 3.6], [0, 1, 2, 3], "copies");
+  CH.forEach(c => {
+    g.append("line").attr("x1", cn.x(c.s)).attr("x2", cn.x(c.e)).attr("y1", cn.y(c.t + 0.07)).attr("y2", cn.y(c.t + 0.07))
+      .attr("stroke", C.ink).attr("stroke-width", 3);
+    g.append("line").attr("x1", cn.x(c.s)).attr("x2", cn.x(c.e)).attr("y1", cn.y(c.m - 0.07)).attr("y2", cn.y(c.m - 0.07))
+      .attr("stroke", C.red).attr("stroke-width", 2.6);
+  });
+  const leg = [["total", C.ink], ["minor allele", C.red], ["gain", C.orange], ["LOH", C.blue], ["CN-LOH", C.teal]];
+  let lx = xL - 6;
+  leg.forEach(([t, c]) => { g.append("text").attr("x", lx).attr("y", 505).attr("font-size", 11).attr("font-weight", 700)
+    .attr("fill", c).text(t); lx += t.length * 6.6 + 16; });
+})();
+
+// ---------- e: results ----------
+(function () {
+  const g = P[4].g;
+  const items = [["report.pdf", ["plots + summary"], C.blue], ["summary.tsv", ["TF 0.60 (0.52-0.67)", "ploidy 2.1, detected"], C.purple],
+                 ["segments.tsv", ["logR, BAF,", "major / minor CN"], C.teal], ["events.tsv", ["LOH, CN-LOH,", "gains, losses"], C.orange]];
+  items.forEach(([nm, d, c], i) => {
+    const y = 128 + i * 96;
+    g.append("rect").attr("x", 14).attr("y", y).attr("width", P[4].w - 28).attr("height", 80).attr("rx", 10)
+      .attr("fill", "white").attr("stroke", C.grid);
+    g.append("rect").attr("x", 14).attr("y", y).attr("width", 7).attr("height", 80).attr("rx", 3).attr("fill", c);
+    g.append("text").attr("x", 34).attr("y", y + 27).attr("font-size", 14).attr("font-weight", 700).attr("fill", C.ink).text(nm);
+    d.forEach((line, j) => g.append("text").attr("class", "lab").attr("x", 34).attr("y", y + 48 + j * 15).text(line));
+  });
+})();
+</script>
+</body>
+</html>
